@@ -1,0 +1,286 @@
+{
+  "pdf_path": "/tmp/research_chain_test/2025MNRAS_540_2863W_arxiv.pdf",
+  "question": "NGC 6205 (M13)：文中观测结论、潮汐结构、距离与运动学、与样本中其它球状星团对比",
+  "max_hops": 2,
+  "markdown_report": "## NGC 6205 (M13) 追踪调研报告\n\n---\n\n### 一、问题\n\n用户请求归纳 **NGC 6205 (M13)** 的以下四个方面信息：\n1. 观测结论\n2. 潮汐结构\n3. 距离与运动学\n4. 与样本中其它球状星团的对比\n\n---\n\n### 二、主文献要点\n\n**主文献**：`2025MNRAS.540.2863W`  \n**标题**：*Tidal structures of six globular clusters from the Wide Field Survey Telescope (WFST) pilot survey*  \n**主题**：基于WFST先导巡天对六个球状星团的潮汐结构研究\n\n**样本星团**（6个）：\n- NGC 4147\n- NGC 5024 (M53)\n- NGC 5053\n- NGC 5272 (M3)\n- NGC 5904 (M5)\n- NGC 6341 (M92)\n\n> ⚠️ **关键发现**：NGC 6205 (M13) **不在本文研究的样本之中**。该论文仅针对上述六个球状星团进行观测分析，未涉及 M13。\n\n---\n\n### 三、参考文献链路上的相关发现\n\n#### 链路 0 → 1：ref[7]\n\n- **文献**：`2004aspc..327..255m`（2004年会议论文集）\n- **主题**：涉及外晕球状星团（Pal 12、Pal 13、Pal 14 等）的潮汐碎屑与观测特征\n- **结论**：该文献**未出现 NGC 6205 (M13)** 的具体讨论，无相关观测结论、潮汐结构、距离与运动学信息。\n\n#### 链路 1 → 2：ref[12]\n\n- **文献**：`2000apj...530..777v`（van den Bergh 2000）\n- **主题**：年轻晕族球状星团与矮椭圆星系的对比研究\n- **样本星团**：Palomar 12、Ruprecht 106、IC 4499、Arp 2、Terzan 7、Pal 1、Pal 3、Pal 4、Eridanus、Fornax No. 4、Palomar 14、NGC 4590 (M68) 等\n- **结论**：该文献**同样未直接讨论 NGC 6205 (M13)**。虽然文中图1涉及球状星团半光半径与 Galactocentric 距离的关系（与潮汐结构相关），并比较了年轻晕族与典型银河系晕族球状星团的差异（与对比样本相关），但均未涉及 M13。\n\n---\n\n### 四、综合结论与仍存缺口\n\n| 维度 | 是否有相关信息 |\n|------|----------------|\n| 观测结论 | ❌ 无 |\n| 潮汐结构 | ❌ 无 |\n| 距离与运动学 | ❌ 无 |\n| 与样本星团对比 | ❌ 无 |\n\n**综合结论**：\n\n本次追踪链路（depth 0 → 1 → 2）的三篇文献**均未解析到 NGC 6205 (M13) 的任何具体信息**。主文献研究对象为 WFST 先导巡天中的六个特定球状星团，不包含 M13；引用链上的 ref[7] 和 ref[12] 讨论的是外晕年轻球状星团和矮椭圆星系关联性，同样未涉及 M13。\n\n**数据缺口**：\n\n若需获取 NGC 6205 (M13) 的观测结论、潮汐结构、距离与运动学参数及与其它球状星团的对比，建议直接查阅以下方向的文献：\n\n1. **Baumgardt & Vasiliev (2021)** — 主文献表1引用，提供银河系球状星团全面距离与运动学参数（含 M13）\n2. **Montuori et al. (2007)** — 银河系球状星团潮汐流模拟\n3. **Lanzoni et al. (2014)** — 球状星团中心旋转特征\n4. **Grillmair (2019)** — 长潮汐尾探测方法",
+  "trace": [
+    {
+      "depth": 0,
+      "label": "root",
+      "parent": null,
+      "pdf_path": "/tmp/research_chain_test/2025MNRAS_540_2863W_arxiv.pdf",
+      "truncated": false,
+      "library_paper_id": 1292,
+      "chain_body_source": "chunks_vector",
+      "ref_parse_mode": "library_graph",
+      "ref_list_size": 79,
+      "ref_prompt_size": 79,
+      "ref_prompt_narrowed": false,
+      "chain_tight_follow": false,
+      "chain_retrieval_query_chars": 46,
+      "chain_ctx_boost_chars": 0,
+      "chain_llm_split": true,
+      "chain_step_body_chars": 12230,
+      "chain_body_raw_chars": 12230,
+      "chain_retrieval_cap_chars": 16000,
+      "chain_retrieval_cap_chunks": 10,
+      "excerpts": [],
+      "follow_ref_numbers": [
+        7
+      ],
+      "follow_ref_numbers_model_prompt": [
+        21,
+        45,
+        59,
+        13,
+        20,
+        65,
+        30,
+        40
+      ],
+      "follow_ref_numbers_model": [
+        7,
+        26,
+        29,
+        33,
+        35,
+        39,
+        50,
+        53
+      ],
+      "follow_ref_numbers_citation_match": [
+        49,
+        51,
+        50,
+        35,
+        39,
+        33,
+        46,
+        47
+      ],
+      "follow_ref_numbers_method_hints": [],
+      "follow_ref_source": "model+citation_match",
+      "rationale": "用户询问的NGC 6205 (M13)未在本文档正文中出现，该文主要讨论NGC 4147、NGC 5024、NGC 5053、NGC 5272、NGC 5904、NGC 6341等球状星团。[21] Baumgardt & Vasiliev (2021)提供了本文所有目标星团的距离和运动学参数（表1引用）；[45] Montuori et al. 2007是关于银河系球状星团潮汐流模拟的重要文献；[59] Lanzoni et al. 2014给出了球状星团中心旋转的研究；[13]和[20]涉及银河系球状星团整体形成与演化；[65] galpy库用于轨道模拟（文中多处提及）；[30] Grillmair 2019讨论了长潮汐尾的探测方法；[40]涉及恒星流的动力学特征。\n本文仅对样本中的六个球状星团（NGC 4147、NGC 5024、NGC 5053、NGC 5272、NGC 5904、NGC 6341）进行观测分析，未涉及NGC 6205（M13），因此没有提供其潮汐结构、距离、运动学及与其它星团的对比信息。",
+      "llm_usage": {
+        "prompt_tokens": 5245,
+        "completion_tokens": 2155,
+        "total_tokens": 7400,
+        "reasoning_tokens": 2071,
+        "response_model": "MiniMax-M2.7-highspeed"
+      },
+      "chain_auto_library_ingest": {
+        "ok": true,
+        "error": null,
+        "dry_run": false,
+        "match_method": "title",
+        "bibcode": "2025MNRAS.540.2863W",
+        "candidates": [
+          {
+            "bibcode": "2025MNRAS.540.2863W",
+            "title": "Tidal structures of six globular clusters from the Wide Field Survey Telescope (WFST) pilot survey",
+            "ads_url": "https://ui.adsabs.harvard.edu/abs/2025MNRAS.540.2863W/abstract"
+          }
+        ],
+        "extracted": {
+          "doi": null,
+          "arxiv_id": null,
+          "title_candidate": "Tidal structures of six globular clusters from the Wide Field Survey Telescope (WFST) pilot survey",
+          "clean_text_len": 57992,
+          "raw_strings_len": 849444,
+          "extraction_note": null
+        },
+        "pdf_path_input": "/private/tmp/research_chain_test/2025MNRAS_540_2863W_arxiv.pdf",
+        "pdf_path_stored": "/Users/zenn/program-data/research_library/pdfs/2025MNRAS.540.2863W.pdf",
+        "placement": {
+          "mode": "copied",
+          "path": "/Users/zenn/program-data/research_library/pdfs/2025MNRAS.540.2863W.pdf",
+          "relative_to_data": "pdfs/2025MNRAS.540.2863W.pdf"
+        },
+        "paper_id": 1292,
+        "pdf_relpath": "pdfs/2025MNRAS.540.2863W.pdf",
+        "references_sync": {
+          "ok": true,
+          "edges_written": 79,
+          "ads_reference_field_len": 79
+        }
+      }
+    },
+    {
+      "depth": 1,
+      "label": "ref[7] from root",
+      "parent": "root",
+      "pdf_path": "/Users/zenn/program-data/research_library/pdf_chain_cache/e042ef8cafb3ddc1/d1_ref7_bibcode_2004aspc..327..255m.pdf",
+      "truncated": true,
+      "library_paper_id": 1293,
+      "chain_body_source": "truncated_fulltext",
+      "ref_parse_mode": "library_graph",
+      "ref_list_size": 24,
+      "ref_prompt_size": 24,
+      "ref_prompt_narrowed": false,
+      "chain_tight_follow": false,
+      "chain_retrieval_query_chars": 46,
+      "chain_ctx_boost_chars": 0,
+      "chain_llm_split": true,
+      "chain_step_body_chars": 17914,
+      "chain_body_raw_chars": 21080,
+      "chain_retrieval_cap_chars": 16000,
+      "chain_retrieval_cap_chunks": 10,
+      "excerpts": [],
+      "follow_ref_numbers": [
+        12
+      ],
+      "follow_ref_numbers_model_prompt": [],
+      "follow_ref_numbers_model": [],
+      "follow_ref_numbers_citation_match": [
+        23,
+        22,
+        24,
+        21,
+        20,
+        19,
+        12,
+        18
+      ],
+      "follow_ref_numbers_method_hints": [],
+      "follow_ref_source": "citation_match",
+      "rationale": "论文正文未提及 NGC 6205 (M13)，全文主要讨论外晕球状星团 Pal 12、Pal 13、Pal 14 等的潮汐碎屑与观测特征，故无相关观测结论、潮汐结构、距离与运动学及样本对比信息。",
+      "llm_usage": {
+        "prompt_tokens": 3585,
+        "completion_tokens": 2815,
+        "total_tokens": 6400,
+        "reasoning_tokens": 2743,
+        "response_model": "MiniMax-M2.7-highspeed"
+      },
+      "library_ingest": {
+        "ok": true,
+        "mode": "ads",
+        "pdf_relpath": "pdf_chain_cache/e042ef8cafb3ddc1/d1_ref7_bibcode_2004aspc..327..255m.pdf"
+      },
+      "pdf_opened_via": "library_local_pdf"
+    },
+    {
+      "depth": 2,
+      "label": "ref[12] from ref[7] from root",
+      "parent": "ref[7] from root",
+      "pdf_path": "/Users/zenn/program-data/research_library/pdf_chain_cache/e042ef8cafb3ddc1/d2_ref12_bibcode_2000apj...530..777v.pdf",
+      "truncated": true,
+      "library_paper_id": 1306,
+      "chain_body_source": "truncated_fulltext",
+      "ref_parse_mode": "library_graph",
+      "ref_list_size": 77,
+      "ref_prompt_size": 77,
+      "ref_prompt_narrowed": false,
+      "chain_tight_follow": false,
+      "chain_retrieval_query_chars": 46,
+      "chain_ctx_boost_chars": 0,
+      "chain_llm_split": true,
+      "chain_step_body_chars": 17915,
+      "chain_body_raw_chars": 39218,
+      "chain_retrieval_cap_chars": 16000,
+      "chain_retrieval_cap_chunks": 10,
+      "excerpts": [],
+      "follow_ref_numbers": [
+        31
+      ],
+      "follow_ref_numbers_model_prompt": [
+        38,
+        1,
+        16,
+        2,
+        33
+      ],
+      "follow_ref_numbers_model": [
+        31,
+        36,
+        53,
+        54,
+        68
+      ],
+      "follow_ref_numbers_citation_match": [
+        62,
+        63,
+        64,
+        65,
+        66,
+        53,
+        54,
+        55
+      ],
+      "follow_ref_numbers_method_hints": [],
+      "follow_ref_source": "model+citation_match",
+      "rationale": "论文未直接讨论NGC 6205(M13)，但提供了与用户问题相关的间接信息：NGC 6205是典型的银河系晕球状星团，论文图1讨论了球状星团半光半径与Galactocentric距离的关系（潮汐结构相关），比较了年轻晕族球状星团与典型银河系晕球状星团的差异（对比样本相关），并引用了球状星团年龄一致性结论（观测结论相关）。[38]Harris(1996)是球状星团基础参数目录，包含NGC 6205的典型晕族星团参数；[1]和[16]提供了年轻晕族球状星团的观测数据用于对比；[2]涉及球状星团年龄测定方法；[33]涉及球状星团结构特征。\n所提供论文正文（van den Bergh关于'年轻球状星团与矮椭圆星系'的文献）中未出现NGC 6205（M13）的具体讨论。该文聚焦于银河系晕中'年轻'球状星团（如Palomar 12、Ruprecht 106、IC 4499、Arp 2、Terzan 7、Pal 1、Pal 3、Pal 4、Eridanus、Fornax No. 4、Palomar 14、NGC 4590/M68等）与矮椭圆星系的关联分析，但未涉及M13的观测结论、潮汐结构、距离与运动学参数，亦未将其与样本中其它球状星团进行对比。",
+      "llm_usage": {
+        "prompt_tokens": 7237,
+        "completion_tokens": 610,
+        "total_tokens": 7847,
+        "reasoning_tokens": 449,
+        "response_model": "MiniMax-M2.7-highspeed"
+      },
+      "library_ingest": {
+        "ok": true,
+        "mode": "ads",
+        "pdf_relpath": "pdf_chain_cache/e042ef8cafb3ddc1/d2_ref12_bibcode_2000apj...530..777v.pdf"
+      },
+      "pdf_opened_via": "library_local_pdf"
+    }
+  ],
+  "library_ingested_ok": 2,
+  "persist_library": true,
+  "use_library_references": true,
+  "llm_usage": [
+    {
+      "call": "chain_step_depth_0_follow",
+      "prompt_tokens": 4717,
+      "completion_tokens": 812,
+      "total_tokens": 5529,
+      "reasoning_tokens": 583,
+      "response_model": "MiniMax-M2.7-highspeed"
+    },
+    {
+      "call": "chain_step_depth_0_excerpts",
+      "prompt_tokens": 5245,
+      "completion_tokens": 2155,
+      "total_tokens": 7400,
+      "reasoning_tokens": 2071,
+      "response_model": "MiniMax-M2.7-highspeed"
+    },
+    {
+      "call": "chain_step_depth_1_follow",
+      "prompt_tokens": 3585,
+      "completion_tokens": 2815,
+      "total_tokens": 6400,
+      "reasoning_tokens": 2743,
+      "response_model": "MiniMax-M2.7-highspeed"
+    },
+    {
+      "call": "chain_step_depth_2_follow",
+      "prompt_tokens": 4633,
+      "completion_tokens": 3195,
+      "total_tokens": 7828,
+      "reasoning_tokens": 3001,
+      "response_model": "MiniMax-M2.7-highspeed"
+    },
+    {
+      "call": "chain_step_depth_2_excerpts",
+      "prompt_tokens": 7237,
+      "completion_tokens": 610,
+      "total_tokens": 7847,
+      "reasoning_tokens": 449,
+      "response_model": "MiniMax-M2.7-highspeed"
+    },
+    {
+      "call": "chain_synthesize",
+      "prompt_tokens": 2663,
+      "completion_tokens": 1018,
+      "total_tokens": 3681,
+      "reasoning_tokens": 152,
+      "response_model": "MiniMax-M2.7-highspeed"
+    }
+  ],
+  "llm_usage_totals": {
+    "prompt_tokens": 28080,
+    "completion_tokens": 10605,
+    "total_tokens": 38685,
+    "reasoning_tokens": 8999
+  }
+}
