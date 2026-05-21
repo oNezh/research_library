@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
-# Wait for tex_migration.sh, then retry fetch-source for arXiv papers that lack TeX text.
+# Retry fetch+index for arXiv papers that still lack TeX source (macOS bash compatible).
 set -u
 cd "$(dirname "$0")/.."
 LOG="chain_runs/tex_migration_retry.log"
-PID_FILE="chain_runs/tex_migration.pid"
 export PYTHONUNBUFFERED=1
 
 {
   echo "=== tex migration retry start $(date -Iseconds) ==="
 
-  if [[ -f "$PID_FILE" ]]; then
-    main_pid="$(cat "$PID_FILE")"
-    echo "waiting for main migration pid=$main_pid ..."
-    while kill -0 "$main_pid" 2>/dev/null; do
-      sleep 30
-    done
-    echo "main migration finished"
-  fi
-
   echo ""
   echo "=== failed papers (arxiv but no tex source) ==="
-  mapfile -t PIDS < <(.venv/bin/python <<'PYEOF'
+  PIDS=()
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && PIDS+=("$pid")
+  done < <(.venv/bin/python <<'PYEOF'
 from research_library.library import db
 conn = db.connect()
 rows = conn.execute("""

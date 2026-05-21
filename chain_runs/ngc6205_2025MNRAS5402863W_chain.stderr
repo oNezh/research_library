@@ -1,2 +1,0 @@
-Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]Loading weights: 100%|██████████| 398/398 [00:00<00:00, 22678.07it/s]
-[llm_usage_totals] {"prompt_tokens": 28080, "completion_tokens": 10605, "total_tokens": 38685, "reasoning_tokens": 8999}

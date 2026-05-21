@@ -1,148 +1,473 @@
 # research-library
 
-Python package migrated from the OpenClaw `paper-search-skill`: ADS/arXiv lookup, PDF download, extraction, and an MCP server.
+本地天文学论文库：**ADS / arXiv 检索**、**PDF 入库**、**引用图**、**TeX 优先的语义索引**（ar5iv → 本地 TeX → PDF 兜底），以及 **stdio MCP** 供 Cursor / Claude Desktop / OpenClaw 调用。
 
-## Install
+数据与代码分离：仓库只含 Python 包；索引、PDF、向量库默认在 `~/program-data/research_library`（可用环境变量改路径）。
 
-```bash
-uv pip install -e ".[pdf,mcp]"
-```
+---
 
-### Conda（独立环境，避免与其它 Python 混用）
+## 安装
 
-环境名：`research-library`（位于 `conda env list` 下列出的独立 prefix）。
+**Python ≥ 3.10**
 
 ```bash
-conda create -n research-library python=3.11 pip -y
-conda activate research-library
-cd /Users/zenn/program/research_library_exploration
-pip install -e ".[pdf,mcp]"
+git clone https://github.com/oNezh/research_library.git
+cd research_library
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"    # 含 pdf、mcp、semantic、tex-source、tex-local、pytest
 ```
 
-之后在本仓库里先 `conda activate research-library` 再运行 `research-lib` / `research-library-mcp`。
+按需安装可选能力：
 
-### 配置 API / 路径（`.env`）
+| Extra | 用途 |
+|-------|------|
+| `pdf` | PyMuPDF 抽表/图 |
+| `mcp` | MCP 服务器 |
+| `semantic` | Chroma 向量索引 |
+| `semantic-local` | 本地 SentenceTransformers（如 Qwen3-Embedding） |
+| `tex-source` | ar5iv HTML 清洗（beautifulsoup4） |
+| `tex-local` | arXiv tarball + pylatexenc 本地 TeX 清洗 |
 
-在**本仓库根目录**使用 `.env`（已加入 `.gitignore`，勿提交 token）：
+最小语义检索（API 嵌入）：
+
+```bash
+pip install -e ".[semantic,tex-source,tex-local,mcp]"
+```
+
+---
+
+## 配置
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 ADS_API_TOKEN（申请：https://ui.adsabs.harvard.edu/user/settings/token ）
 ```
 
-程序会**优先**加载该文件，再补充加载当前工作目录下的 `.env`；已存在于进程环境里的变量不会被覆盖。
-
-可选：`RESEARCH_LIBRARY_DATA_DIR` 覆盖默认数据目录。
-
-Data root defaults to `/Users/zenn/program-data/research_library` (`index/`, `pdfs/`).
-
-## 仓库布局
-
-| 位置 | 作用 |
-|------|------|
-| `pyproject.toml` | 包元数据、`research-lib` / `research-library-mcp` 入口 |
-| `mcp/run.sh` | OpenClaw stdio MCP 启动包装：切到仓库根、优先 `.venv`、`python -m research_library.mcp_server`（路径勿随便改，OpenClaw 配置里写死了） |
-| `.env.example` / `.env` | 仓库根配置模板与实际密钥（勿提交） |
-| `chain_runs/`（可选） | 本地保存引用链 `--json`/`.md` 的运行产物；是否纳入版本管理自定 |
-
-数据与缓存不在仓库内，而在 `RESEARCH_LIBRARY_DATA_DIR`（默认 `~/program-data/research_library`）。
-
-## 源码结构（`src/research_library/`）
-
-**子包**
-
-| 路径 | 职责 |
-|------|------|
-| `library/db.py` | 本地 SQLite + FTS5（`library.db`）：入库、检索、统计 |
-| `library/cli.py` | `research-lib library …` |
-| `analysis/pdf.py` | PDF 抽文本、LLM 摘要与按问题摘录 |
-| `analysis/llm/` | LLM 抽象与 MiniMax 实现 |
-
-**顶层模块（CLI / MCP 仍从这里 import；体量合适时可再收到子包）**
-
-| 文件 | 职责 |
-|------|------|
-| `cli.py` | 所有 `research-lib` 子命令的总入口、参数分发 |
-| `mcp_server.py` | FastMCP 工具定义（lookup / download / library / pdf_analyze 等），stdio |
-| `config.py` | 数据目录、`load_env`、`ADS_API_TOKEN` 助手 |
-| `lookup.py` | ADS + arXiv 检索、BibTeX、下载、`pdf2ads` 等（原 paper_lookup 主体） |
-| `ads_data_products.py` | ADS 数据产品统计与目录扫描 |
-| `arxiv_keywords.py` | arXiv 按关键词轮询、写 `arxiv_cache.json`、可选写入 `library.db` |
-| `pdf_extract.py` | 用 PyMuPDF 抽 PDF 表/图（可选依赖 `[pdf]`） |
-| `refs_classify.py` | 参考文献列表 + 引用上下文管线（可调外部 LLM） |
-| `ref_classifier.py` | 按 PDF 文本对引用做背景/方法/结果等分类（`lookup` 在需要时会子进程调用） |
-
-**演进建议（未实施）**：若继续膨胀，可把 `lookup` + `ads_data_products` 收到 `discovery/`，`arxiv_keywords` 收到 `ingest/`，`pdf_extract` + `refs_*` 收到 `pdf_workflows/`，并把 `cli.py` / `mcp_server.py` 减薄为只做注册；改动手面大时需同步改文档与 MCP 相关说明。
-
-## CLI
-
-- `research-lib lookup …` — same subcommands as the original `paper_lookup.py` (`title`, `query`, `ref`, `bibtex`, `download`, `pdf2ads`). Use `download --library` to save under the configured `pdfs/` dir.
-- `research-lib ads-data-products …`
-- `research-lib arxiv-keywords …`
-- `research-lib pdf-extract …`
-- `research-lib pdf-analyze PATH [-q '问题'] [--json]` — PDF 抽文本 + LLM 中文摘要；可选 `--question` 做「按问题摘录」。加 **`--reference-chain`** 时按参考文献多跳跟读（见下节），产出 `markdown_report`；可用 `--max-hops`、`--no-persist-library`、`--no-library-refs` 等（`research-lib pdf-analyze --help`）。需配置 LLM（默认与 `QF_LLM_*` / `MINIMAX_*` 一致，见 `.env.example`）。
-- `research-lib refs-classify …`
-
-## 引用链（`pdf-analyze --reference-chain`）
-
-多跳流程：对当前 PDF 做「跟读哪些参考文献编号 → 拉取子 PDF → （可选）写入 `library.db` 与 `paper_references` → 对子文重复」，最后合成一篇 Markdown 报告。根节点若已在库中且开启默认的 library 参考文献模式，**优先用 ADS 同步的 `paper_references` 建引用表**，不再回退解析 PDF 文末参考文献区。
-
-**常用环境变量**（完整列表见 `.env.example`）：
-
-| 变量 | 作用 |
-|------|------|
-| `RESEARCH_PDF_CHAIN_LIBRARY_REFS` | `1`（默认）用库内引用图；`0` 只解析 PDF 参考文献字符串 |
-| `RESEARCH_PDF_CHAIN_AUTO_INGEST` | `1`（默认）根 PDF 不在库时先 `ingest` + 同步引用边（需 `ADS_API_TOKEN`） |
-| `RESEARCH_PDF_CHAIN_MAX_FOLLOW_PER_HOP` | 每跳最多跟几条（`0` 不限制）；跑长链时可设为 `1` 控成本 |
-| `RESEARCH_PDF_CHAIN_MAX_STEP_TOKENS` / `RESEARCH_PDF_CHAIN_STEP_PASS1_MAX_TOKENS` | 单步 completion 上限；推理模型建议 pass1 不要太低 |
-| `RESEARCH_PDF_ACQUIRE_TIMEOUT` | 子文献 PDF `curl` 超时（秒） |
-
-**示例**（先自备种子 PDF，或先用 `lookup download --bibcode …`）：
+**必填（ADS 检索、BibTeX、引用同步、PDF 网关下载）：**
 
 ```bash
-research-lib pdf-analyze /path/to/seed.pdf --reference-chain --max-hops 2 \
-  -q "你的问题（如某星团、某方法）"
-# 结构化结果（含 trace、每步 library_ingest）：追加 --json
+ADS_API_TOKEN=your_token   # https://ui.adsabs.harvard.edu/user/settings/token
 ```
 
-说明：**`--json` 顶层字段 `library_ingested_ok`** 只统计带 `library_ingest` 且成功的子节点；根节点若走自动入库，请看 `trace[0].chain_auto_library_ingest`。子 PDF 可能落在数据目录下的 `pdf_chain_cache/...` 或 `pdfs/...`，与是否复制进标准 `pdfs/` 有关。
-
-## LLM（MiniMax 推理类模型）与 completion
-
-带推理链的模型会把部分额度用在内部 `<think>` 中。若**单次** `max_tokens` / pass1 上限过小，会出现去掉标记后「正文为空」、链中断。本仓库已：**提高引用链 pass1 默认上限**、在 MiniMax 客户端对「仅截断在 thinking」的响应**自动加倍重试一次**，并将 HTTP **`IncompleteRead`** 等纳入可重试网络错误。仍不稳定时可调高 `RESEARCH_LLM_MAX_COMPLETION_TOKENS`、`RESEARCH_PDF_CHAIN_STEP_PASS1_MAX_TOKENS` 或 `RESEARCH_LLM_TIMEOUT`（见 `.env.example`）。
-
-## PDF 获取（bibcode 与下载失败）
-
-仅有 **bibcode** 时也会用 `ADS_API_TOKEN` 走解析器尝试 arXiv / eprint / ADS / 出版商链接。旧版错误码 `no_arxiv_or_doi` 易误解：现已区分 **`ads_all_pdf_downloads_failed`**（已试 ADS 链路但均无可用 PDF）与真正的无标识情形。仅 bibcode 时会从 ADS **回填 DOI** 以利于解析。老期刊（如 *Nature* 早期）常见出版商付费墙或无效 eprint 链接，**不等于 ADS 查不到条目**。
-
-## 本地文献库（SQLite + FTS）
-
-数据根目录与 `pdfs/`、`arxiv_cache.json` 相同（默认 `/Users/zenn/program-data/research_library`，可用 `RESEARCH_LIBRARY_DATA_DIR` 覆盖）。索引库文件为 **`index/library.db`**。`research-lib arxiv-keywords` 在更新 `arxiv_cache.json` 的同时会把本轮匹配到的论文 **upsert** 进该库（可加 `--no-persist-db` 只写缓存不写库）。
-
-批量把某个目录下所有 PDF 入库并做向量/FTS 索引，可用仓库内脚本：
-
-`uv run python scripts/batch_ingest_pdfs.py "/path/to/Zotero/files" 2>&1 | tee batch.log`
-
-（默认：`ingest_pdf_file` 复制到 `data/pdfs/`，写 `library.db`，按篇同步 `paper_references`，再对成功入库的 `paper_id` 调用 `semantic.index_papers`。）
-
-- `research-lib library init` — 显式建表（首次写入前也会自动建表）
-- `research-lib library stats` — 条数与路径
-- `research-lib library search QUERY [--limit N] [--json]`
-- `research-lib library import-cache` — 从现有 `arxiv_cache.json` 批量灌库
-- `research-lib library ingest-pdf PATH.pdf` — PDF 自动抽元数据并匹配 ADS；**失败补录**可附加 `--doi`、`--arxiv`、`--match-title '…'`（与抽取结果合并），或 `--bibcode 19xxApJ…` 直接指定 ADS 记录；成功后可用 `library search` / `library semantic-index` 检索
-
-## MCP (stdio)
-
-`library_search`、`library_stats`、`library_import_cache`、`arxiv_keyword_scan`（`persist_db`）等见上；**`library_ingest_pdf`** 支持 `manual_doi` / `manual_arxiv` / `manual_match_title` / `manual_bibcode` 做失败重试。引用链可调用专用工具 **`pdf_reference_chain`**（参数与 CLI `--reference-chain` 对应），或 **`pdf_analyze`** 设 **`reference_chain=true`**；均可选 `llm_provider`、`max_hops`、`max_chars`/`max_chars_per_pdf`、`max_step_tokens`、`max_synth_tokens` 等。返回 JSON 含 `markdown_report`、`trace` 等（见上文「引用链」）。
-
-本仓库提供与 `qf_mcp/run.sh` 相同用法的包装脚本（优先使用 `.venv`，否则 `PYTHONPATH=src` + Homebrew `python3.11`）：
+**常用可选项：**
 
 ```bash
-openclaw mcp set research_library '{"command":"/Users/zenn/program/research_library_exploration/mcp/run.sh","args":[]}'
+# 数据根目录（默认 ~/program-data/research_library）
+RESEARCH_LIBRARY_DATA_DIR=/path/to/data
+
+# 语义检索：vector（Chroma）| fts（仅 SQLite FTS，无需嵌入模型）
+RESEARCH_SEMANTIC_BACKEND=vector
+
+# 本地 Qwen 嵌入（示例）
+RESEARCH_EMBEDDING_PROVIDER=local_sentence_transformer
+RESEARCH_LOCAL_EMBEDDING_HOME=/path/to/qwen
+RESEARCH_LOCAL_EMBEDDING_HF_OFFLINE=1
+
+# PDF 入库后自动做 semantic-index（TeX→PDF fallback）
+RESEARCH_INGEST_AUTO_SEMANTIC_INDEX=1
+
+# LLM（pdf-analyze、semantic-report 等）
+MINIMAX_API_KEY=...
+MINIMAX_MODEL=MiniMax-M2.7-highspeed
 ```
 
-也可直接（需已 `pip install -e ".[mcp]"` 到当前环境）：
+完整变量说明见 [.env.example](.env.example)。
+
+程序会加载**仓库根目录**下的 `.env`（已在 `.gitignore` 中，勿提交 token）。
+
+---
+
+## 数据目录结构
+
+```
+$RESEARCH_LIBRARY_DATA_DIR/          # 默认 ~/program-data/research_library
+├── index/
+│   ├── library.db          # SQLite：papers、paper_chunks、paper_references、FTS
+│   └── chroma_semantic/    # Chroma 向量（RESEARCH_SEMANTIC_BACKEND=vector）
+├── pdfs/                   # 入库 PDF（按 bibcode 命名）
+├── sources/<paper_id>/     # TeX 清洗文本 main.txt + sections.json
+├── arxiv_sources/          # arXiv e-print 缓存（pylatexenc 用）
+└── arxiv_cache.json        # arxiv-keywords 轮询缓存
+```
+
+---
+
+## 快速上手
 
 ```bash
+# 1. 把 PDF 入库（自动 ADS 匹配、复制到 pdfs/、同步引用、可选自动 embedding）
+research-lib library ingest-pdf /path/to/paper.pdf
+
+# 2. 元数据检索
+research-lib library search "GD-1 stream metallicity"
+
+# 3. 语义检索（需 semantic 后端 + 嵌入配置）
+research-lib library semantic-search "alpha-knee globular cluster" --limit 5
+
+# 4. 带引用的 LLM 报告
+research-lib library semantic-report "LMC star formation history" --json
+```
+
+---
+
+## CLI 总览
+
+入口：`research-lib <command> …`
+
+| 一级命令 | 说明 |
+|----------|------|
+| `lookup` | ADS/arXiv 检索、BibTeX、下载、pdf2ads |
+| `library` | 本地 SQLite 文献库（见下节） |
+| `pdf-analyze` | PDF + LLM 摘要 / 按问题摘录 / **引用链** |
+| `pdf-extract` | PDF 表/图抽取（需 `[pdf]`） |
+| `arxiv-keywords` | arXiv 关键词轮询 + 可选写入库 |
+| `ads-data-products` | ADS 数据产品 |
+| `refs-classify` | 参考文献 + 引用上下文分类 |
+
+---
+
+## 本地文献库 `research-lib library …`
+
+### 库管理与元数据检索
+
+```bash
+research-lib library init              # 建表（首次写入也会自动建）
+research-lib library stats             # 论文数、库路径
+research-lib library search "query" --limit 20
+research-lib library find "query"      # 先搜本地，再 ADS/arXiv
+research-lib library import-cache      # 从 arxiv_cache.json 批量导入
+research-lib library dedupe --dry-run  # 查重复 bibcode/arXiv/pdf
+```
+
+### PDF 入库与更新
+
+**从 PDF 文件入库**（抽 DOI/arXiv/标题 → ADS 匹配 → 写 `papers` + `pdf_relpath`）：
+
+```bash
+research-lib library ingest-pdf paper.pdf
+
+# 自动匹配失败时手动补 metadata
+research-lib library ingest-pdf paper.pdf --doi 10.1234/xxx
+research-lib library ingest-pdf paper.pdf --arxiv 2401.12345
+research-lib library ingest-pdf paper.pdf --match-title "Exact paper title"
+research-lib library ingest-pdf paper.pdf --bibcode 2024ApJ...L
+
+# 只解析不入库
+research-lib library ingest-pdf paper.pdf --dry-run --json
+```
+
+**从参考文献行入库并下载 PDF：**
+
+```bash
+research-lib library ingest-ref --text "Smith et al. 2020, ApJ, 123, 45"
+research-lib library ingest-ref --text "2020ApJ...S" --skip-download
+```
+
+**更新 PDF**（优先期刊版：`pub > ads > eprint > arxiv`）：
+
+```bash
+research-lib library update-pdf --paper-id 365
+research-lib library update-pdf --all --source auto --reindex
+```
+
+**批量 Zotero / 文件夹入库：**
+
+```bash
+python scripts/batch_ingest_pdfs.py "/path/to/pdfs" 2>&1 | tee batch.log
+python scripts/batch_ingest_pdfs.py "/path/to/pdfs" --no-semantic   # 只入库不 embed
+```
+
+### TeX 源与 Embedding
+
+Embedding **默认走 TeX 优先**：`ar5iv` → `pylatexenc`（本地 tarball）→ **PDF 兜底**。
+
+```bash
+# 拉 TeX 清洗文本（写 sources/<id>/main.txt）
+research-lib library fetch-source --paper-id 365 --force
+research-lib library fetch-source --all --force
+
+# 切块 + 嵌入（无 TeX 时会自动 fetch；仍失败则用 PDF）
+research-lib library semantic-index --force
+research-lib library semantic-index --paper-id 365 --force
+research-lib library semantic-index --only-missing   # 只补未索引的
+
+# 一键：fetch + re-embed
+research-lib library reembed-from-source --all --force
+
+# 语义检索
+research-lib library semantic-search "Sagittarius GD-1 cocoon" --limit 10 --json
+```
+
+相关环境变量：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `RESEARCH_SEMANTIC_AUTO_FETCH_TEX` | `1` | index 前自动拉 TeX |
+| `RESEARCH_TEX_LOCAL_BACKEND` | `pylatexenc` | 第二步本地 TeX 后端 |
+| `RESEARCH_INGEST_AUTO_SEMANTIC_INDEX` | `1` | ingest-pdf 后自动 index |
+| `RESEARCH_SEMANTIC_CHUNK_SIZE` | `1200` | 切块大小 |
+| `RESEARCH_SEMANTIC_CHUNK_OVERLAP` | `200` | 块重叠 |
+
+### 引用图
+
+```bash
+# 从 ADS 同步每篇论文的 references → paper_references
+research-lib library citation sync
+research-lib library citation sync --missing-only
+
+# 导出引用图 / 找缺失 hub
+research-lib library citation graph --min-hub 2
+
+# 把缺失 hub 的 bibcode 从 ADS 灌入库
+research-lib library citation ingest-hubs -
+```
+
+### BibTeX 导出
+
+```bash
+# 文件：每行 bibcode / arXiv / DOI / 参考文献行
+research-lib library bib-export refs.txt
+
+# stdin
+echo "2020ApJ...S" | research-lib library bib-export -
+```
+
+### LLM 综合报告
+
+```bash
+# 多 query _gather + LLM 合成
+research-lib library topic-dossier "LMC metallicity gradient"
+
+# 语义片段 + paper_references + LLM，输出带 [S1] 来源标记
+research-lib library semantic-report "How does Sgr affect GD-1?" --expand-queries
+research-lib library semantic-report "..." --no-synth --json   # 只要结构化上下文
+```
+
+---
+
+## ADS / arXiv 检索 `research-lib lookup …`
+
+子命令与独立 `paper_lookup` 兼容：
+
+```bash
+research-lib lookup ref --text "Balbinot 2022" --json
+research-lib lookup title --text "GD-1 stream" --json
+research-lib lookup query --text "globular cluster kinematics" --json
+research-lib lookup bibtex --bibcode 2024ApJ...L
+research-lib lookup download --bibcode 2024ApJ...L --library    # 存到 data/pdfs/
+research-lib lookup download --arxiv 2401.12345 --library
+research-lib lookup pdf2ads /path/to/paper.pdf --json
+```
+
+---
+
+## PDF 分析 `research-lib pdf-analyze`
+
+**单篇摘要 / 按问题摘录：**
+
+```bash
+research-lib pdf-analyze paper.pdf
+research-lib pdf-analyze paper.pdf -q "What tracer did they use for metallicity?"
+research-lib pdf-analyze paper.pdf --json
+```
+
+**多跳引用链**（根 PDF 在库中且已有 `paper_references` 时，优先用 ADS 引用图，而非解析 PDF 文末参考文献）：
+
+```bash
+research-lib pdf-analyze seed.pdf --reference-chain \
+  -q "Your research question" \
+  --max-hops 2
+
+# 常用环境变量见 .env.example：
+# RESEARCH_PDF_CHAIN_LIBRARY_REFS=1
+# RESEARCH_PDF_CHAIN_MAX_FOLLOW_PER_HOP=0
+# RESEARCH_PDF_CHAIN_AUTO_INGEST=1
+```
+
+---
+
+## arXiv 监控 `research-lib arxiv-keywords`
+
+```bash
+research-lib arxiv-keywords astro-ph.GA --days=7
+research-lib arxiv-keywords --stats
+research-lib arxiv-keywords --clear-cache
+```
+
+默认把匹配论文写入 `arxiv_cache.json`，并 **upsert** 到 `library.db`（`--no-persist-db` 可只写缓存）。
+
+---
+
+## MCP 服务器
+
+### 启动
+
+```bash
+# 方式 A：安装后的入口
 research-library-mcp
+
+# 方式 B：仓库内 wrapper（优先 .venv）
+./mcp/run.sh
 ```
+
+stdio 协议，无 HTTP 端口。
+
+### 注册到 Cursor
+
+1. 打开 **Cursor Settings → MCP**（或编辑 `~/.cursor/mcp.json`）
+2. 添加：
+
+```json
+{
+  "mcpServers": {
+    "research-library": {
+      "command": "/absolute/path/to/research_library/mcp/run.sh",
+      "args": []
+    }
+  }
+}
+```
+
+若不用 wrapper，可指定 venv Python：
+
+```json
+{
+  "mcpServers": {
+    "research-library": {
+      "command": "/absolute/path/to/research_library/.venv/bin/python",
+      "args": ["-m", "research_library.mcp_server"],
+      "cwd": "/absolute/path/to/research_library"
+    }
+  }
+}
+```
+
+确保 `cwd` 下存在 `.env`，或已在系统环境中设置 `ADS_API_TOKEN` 等变量。
+
+### 注册到 Claude Desktop
+
+编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "research-library": {
+      "command": "/absolute/path/to/research_library/mcp/run.sh",
+      "args": []
+    }
+  }
+}
+```
+
+重启 Claude Desktop 后生效。
+
+### 注册到 OpenClaw
+
+```bash
+openclaw mcp set research_library \
+  '{"command":"/absolute/path/to/research_library/mcp/run.sh","args":[]}'
+```
+
+### MCP 工具一览
+
+**检索 / 下载**
+
+| 工具 | 说明 |
+|------|------|
+| `lookup_ref` | 参考文献行 → ADS 解析 |
+| `lookup_title` | 标题检索 |
+| `lookup_query` | 自由文本 ADS + arXiv |
+| `fetch_bibtex` | 按 bibcode 或 arXiv 取 BibTeX |
+| `download_pdf` | 下载 PDF（`use_library=true` 存 data/pdfs/） |
+| `pdf_to_ads` | 本地 PDF → ADS 元数据 |
+
+**本地库**
+
+| 工具 | 说明 |
+|------|------|
+| `library_search` | FTS 检索 title/abstract |
+| `library_stats` | 库统计 |
+| `library_import_cache` | 导入 arxiv_cache.json |
+| `library_ingest_pdf` | PDF 入库（支持 `manual_doi` / `manual_arxiv` / `manual_bibcode` 等） |
+| `library_bib_export` | 参考文献列表 → BibTeX + 可选 ingest |
+| `library_fetch_source` | 拉 ar5iv / 本地 TeX 文本 |
+| `library_update_pdf` | 更新 PDF（期刊版优先） |
+
+**语义 / 报告**
+
+| 工具 | 说明 |
+|------|------|
+| `library_semantic_status` | chunk 数、当前 backend |
+| `library_semantic_index` | 建/重建索引（`force`） |
+| `library_semantic_search` | 块级语义检索 |
+| `library_get_related_papers` | 相关论文 |
+| `library_compare_topic` | 多论文主题对比 |
+| `library_topic_dossier` | 主题 dossier |
+| `library_semantic_report` | 片段 + 引用 + LLM 报告（`[S1]` 标签） |
+
+**引用图 / 引用链**
+
+| 工具 | 说明 |
+|------|------|
+| `library_citation_sync` | ADS → paper_references |
+| `library_citation_graph` | 引用图 / mindmap |
+| `library_citation_ingest_hubs` | 补全缺失 hub |
+| `pdf_analyze` | PDF LLM 分析（`reference_chain=true` 开引用链） |
+| `pdf_reference_chain` | 专用引用链（需 `question`） |
+
+**其他**
+
+| 工具 | 说明 |
+|------|------|
+| `pdf_extract_tables_or_images` | 表/图抽取 |
+| `references_classify` | 引用分类 + 上下文 |
+| `ads_data_products` | ADS 数据产品 |
+| `arxiv_keyword_scan` | arXiv 关键词扫描 |
+
+`semantic_backend` 参数：`""`（读环境变量）、`fts`、`vector`。
+
+---
+
+## 典型工作流
+
+### 新建个人论文库
+
+```bash
+cp .env.example .env   # 填 ADS_API_TOKEN、嵌入、LLM
+
+research-lib library ingest-pdf ~/Downloads/*.pdf
+research-lib library citation sync
+research-lib library semantic-index --only-missing
+```
+
+### 从 arXiv 每日更新扩库（无 PDF）
+
+```bash
+research-lib arxiv-keywords astro-ph.GA --days=1
+research-lib library fetch-source --all
+research-lib library semantic-index --only-missing
+```
+
+仅有 metadata、无 PDF 的论文：TeX 成功则可语义搜索；TeX 也失败则无法 index，除非之后 `download_pdf` / `ingest-ref`。
+
+### 单篇升级到期刊 PDF + 重 embed
+
+```bash
+research-lib library update-pdf --paper-id 365 --reindex
+```
+
+---
+
+## 开发与测试
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+---
+
+## 许可证
+
+见仓库 LICENSE（若未添加，使用前请自行补充）。

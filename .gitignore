@@ -13,6 +13,5 @@ build/
 .mypy_cache/
 .ruff_cache/
 *.log
-chain_runs/*.log
-chain_runs/*.pid
-chain_runs/batch_*.json
+chain_runs/*
+!chain_runs/*.sh
