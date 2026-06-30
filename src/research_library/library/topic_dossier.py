@@ -9,6 +9,7 @@ from research_library.analysis.llm.base import ChatMessage
 from research_library.analysis.llm.registry import get_chat_client
 from research_library.config import load_env
 from research_library.library import db as library_db
+from research_library.library.figure_assets import attach_figures_to_report
 
 
 def _default_expansion_queries(topic: str) -> List[str]:
@@ -183,4 +184,8 @@ def build_topic_dossier(
         out["markdown"] = synthesize_topic_dossier_markdown(
             topic, chunks, max_context_chars=max_context_chars
         )
+    fig_out = attach_figures_to_report(conn, chunks, out.get("markdown") or "")
+    out["markdown"] = fig_out["markdown"]
+    out["figures"] = fig_out["figures"]
+    out["figures_markdown"] = fig_out["figures_markdown"]
     return out

@@ -48,6 +48,7 @@ class CleanText:
     backend: str
     arxiv_id: Optional[str] = None
     source_relpath: Optional[str] = None
+    ar5iv_html: Optional[str] = None
 
 
 _VALID_BACKENDS: Tuple[str, ...] = ("ar5iv", "pylatexenc", "pandoc", "latexml")
@@ -255,6 +256,7 @@ def _ar5iv_clean_text(arxiv_id: str) -> Optional[CleanText]:
         sections=cleaned.sections,
         backend="ar5iv",
         arxiv_id=arxiv_id,
+        ar5iv_html=html,
     )
 
 
@@ -464,6 +466,16 @@ def fetch_source_for_paper(
         backend=ct.backend,
         arxiv_id=arxiv_id,
     )
+    if ct.ar5iv_html and ct.arxiv_id:
+        from research_library.library import figure_assets
+
+        figure_assets.persist_figures_from_ar5iv_html(
+            paper_id,
+            ct.arxiv_id,
+            ct.ar5iv_html,
+            force=force,
+            download=True,
+        )
     fetched_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     library_db.update_paper_source_metadata(
         conn,

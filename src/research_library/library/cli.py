@@ -764,6 +764,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "source_index": out.get("source_index"),
                 "bundle_chars": out.get("bundle_chars"),
                 "markdown": out.get("markdown") or "",
+                "figures": out.get("figures") or [],
+                "figures_markdown": out.get("figures_markdown") or "",
                 "n_chunks": len(out.get("chunks") or []),
             }
             if out.get("chunks") is not None:

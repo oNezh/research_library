@@ -9,6 +9,7 @@ from research_library.analysis.llm.base import ChatMessage
 from research_library.analysis.llm.registry import get_chat_client
 from research_library.config import load_env
 from research_library.library import db as library_db
+from research_library.library.figure_assets import attach_figures_to_report
 
 
 def _chunk_dedupe_key(row: Dict[str, Any]) -> Tuple[int, Any]:
@@ -292,4 +293,8 @@ def build_semantic_report(
     }
     if synthesize and bundle.strip():
         out["markdown"] = synthesize_semantic_report_markdown(query, bundle)
+    fig_out = attach_figures_to_report(conn, enriched, out.get("markdown") or "")
+    out["markdown"] = fig_out["markdown"]
+    out["figures"] = fig_out["figures"]
+    out["figures_markdown"] = fig_out["figures_markdown"]
     return out
