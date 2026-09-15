@@ -75,6 +75,20 @@ class Settings:
     http_retry_base_delay: float = field(
         default_factory=lambda: _float("RESEARCH_HTTP_RETRY_BASE_DELAY", 0.8)
     )
+    http_retry_max_delay: float = field(
+        default_factory=lambda: _float("RESEARCH_HTTP_RETRY_MAX_DELAY", 10.0)
+    )
+
+    # --- arXiv keyword scan (export.arxiv.org 429/503; longer than generic HTTP)
+    arxiv_retry_attempts: int = field(
+        default_factory=lambda: _int("RESEARCH_ARXIV_RETRY_ATTEMPTS", 8)
+    )
+    arxiv_retry_base_delay: float = field(
+        default_factory=lambda: _float("RESEARCH_ARXIV_RETRY_BASE_DELAY", 5.0)
+    )
+    arxiv_retry_max_delay: float = field(
+        default_factory=lambda: _float("RESEARCH_ARXIV_RETRY_MAX_DELAY", 180.0)
+    )
 
     # --- Semantic / retrieval -------------------------------------------------
     semantic_backend: str = field(default_factory=lambda: _str("RESEARCH_SEMANTIC_BACKEND", "vector"))

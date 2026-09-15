@@ -8,11 +8,22 @@ arxiv_keyword_monitor.py
     python3 arxiv_keywords.py --stats         # 显示缓存统计
     python3 arxiv_keywords.py all --days=365 --max-results=500 --max-pages=0   # 回填（每分区多页，0=自动直到日期/API 尽头，最多 250 页/区）
     python3 arxiv_keywords.py astro-ph.GA --days=120 --max-pages=20             # 单区分段拉取
+
+Rate limits (export.arxiv.org):
+    Transient HTTP 429 / 503 (and 408/425/500/502/504) are retried with
+    exponential backoff + jitter. ``Retry-After`` is honored when present.
+    Default: 8 attempts, 5s base, 180s cap (override via RESEARCH_ARXIV_RETRY_*
+    or the generic RESEARCH_HTTP_RETRY_* knobs — see settings.py).
+    Successful requests are paced 3–7s apart (arXiv API etiquette).
+    A category that still fails is retried once later in the same run after
+    the remaining categories. Exit status:
+        0  all fetches succeeded (stdout ``NO_REPLY`` if no keyword hits)
+        1  partial results (some categories failed; matches still printed)
+        2  every requested fetch failed (stdout ``FETCH_FAILED``, not ``NO_REPLY``)
 """
 
 import sys
 import json
-import os
 import random
 import time
 import urllib.request
@@ -22,10 +33,15 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from research_library.http_retry import TRANSIENT_HTTP, backoff_seconds
+
 # arXiv API: leave a few seconds between requests (export.arxiv.org/help/api).
 _ARXIV_INTER_REQUEST_SEC = (3.0, 7.0)
 # When max_pages_per_category=0, cap pagination to avoid runaway.
 _MAX_PAGES_SAFETY = 250
+_DEFAULT_ARXIV_RETRIES = 8
+_DEFAULT_ARXIV_BASE_DELAY = 5.0
+_DEFAULT_ARXIV_MAX_DELAY = 180.0
 
 # ========== 用户配置 ==========
 # 用户关键字（中英文）
@@ -131,35 +147,77 @@ def clear_cache():
 
 # ========== 核心逻辑 ==========
 
+def _arxiv_retry_params() -> tuple[int, float, float]:
+    """Attempts / base delay / max delay. Prefer RESEARCH_ARXIV_RETRY_*; else HTTP knobs; else defaults."""
+    try:
+        from research_library.settings import get_settings
+
+        s = get_settings()
+        attempts = s.arxiv_retry_attempts
+        base = s.arxiv_retry_base_delay
+        max_delay = s.arxiv_retry_max_delay
+        # If the caller only set the generic HTTP knobs, still allow those to raise the floor
+        # when they are *higher* than arXiv defaults — never silently adopt the short HTTP
+        # defaults (3 / 0.8s / 10s) which would undo minutes-scale backoff.
+        if attempts == _DEFAULT_ARXIV_RETRIES and s.http_retry_attempts > attempts:
+            attempts = s.http_retry_attempts
+        if base == _DEFAULT_ARXIV_BASE_DELAY and s.http_retry_base_delay > base:
+            base = s.http_retry_base_delay
+        if max_delay == _DEFAULT_ARXIV_MAX_DELAY and s.http_retry_max_delay > max_delay:
+            max_delay = s.http_retry_max_delay
+        return (max(1, int(attempts)), max(0.1, float(base)), max(0.1, float(max_delay)))
+    except Exception:
+        return (_DEFAULT_ARXIV_RETRIES, _DEFAULT_ARXIV_BASE_DELAY, _DEFAULT_ARXIV_MAX_DELAY)
+
+
+def _second_pass_cooldown(base: float, max_delay: float) -> float:
+    return min(max_delay, max(base * 2.0, _ARXIV_INTER_REQUEST_SEC[1]))
+
+
 def fetch_arxiv(
     category: str,
     max_results: int = 500,
     start: int = 0,
     timeout: int = 180,
-    retries: int = 4,
+    retries: int | None = None,
+    base_delay: float | None = None,
+    max_delay: float | None = None,
 ) -> str:
     url = (
         f"https://export.arxiv.org/api/query"
         f"?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending"
         f"&start={start}&max_results={max_results}"
     )
+    cfg_attempts, cfg_base, cfg_max = _arxiv_retry_params()
+    n = cfg_attempts if retries is None else max(1, int(retries))
+    base = cfg_base if base_delay is None else max(0.1, float(base_delay))
+    cap = cfg_max if max_delay is None else max(0.1, float(max_delay))
     last_err: BaseException | None = None
-    for attempt in range(retries):
+    for attempt in range(n):
         req = urllib.request.Request(url, headers={"User-Agent": "python3/arxiv_keyword_monitor"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 return response.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            last_err = e
+            try:
+                e.read()
+            except Exception:
+                pass
+            if e.code not in TRANSIENT_HTTP:
+                raise
         except http.client.IncompleteRead as e:
             last_err = e
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last_err = e
-        if attempt + 1 < retries:
-            delay = 2.0 + random.uniform(1.0, 4.0)
-            print(
-                f"[WARN] arXiv fetch retry {attempt + 1}/{retries - 1} in {delay:.1f}s: {last_err}",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
+        if attempt + 1 >= n:
+            break
+        delay = backoff_seconds(attempt, base=base, max_delay=cap, err=last_err)
+        print(
+            f"[WARN] arXiv fetch retry {attempt + 1}/{n - 1} in {delay:.1f}s: {last_err}",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
     assert last_err is not None
     raise last_err
 
@@ -200,7 +258,7 @@ def run(
     persist_db: bool = True,
     max_results: int = 500,
     max_pages_per_category: int = 1,
-):
+) -> int:
     cache = load_cache() if cache_enabled else {}
     cached_ids = set(cache.keys())
 
@@ -212,63 +270,91 @@ def run(
 
     results = []
     new_entries = {}   # 本次新出现的条目（用于更新缓存）
-    any_request = False
+    fetch_state = {"any_request": False}
 
-    for cat in cats:
-        start = 0
-        for page_idx in range(page_cap):
-            if any_request:
-                delay = random.uniform(*_ARXIV_INTER_REQUEST_SEC)
-                print(f"[INFO] Sleeping {delay:.1f}s before next arXiv request...", file=sys.stderr)
-                time.sleep(delay)
-            any_request = True
-            print(
-                f"[INFO] Fetching {cat} start={start} (page {page_idx + 1} of up to {page_cap})...",
-                file=sys.stderr,
-            )
-            try:
-                xml = fetch_arxiv(cat, max_results=max_results, start=start)
-            except Exception as e:
-                print(f"[ERROR] Failed to fetch {cat}: {e}", file=sys.stderr)
-                break
-            entries = parse_arxiv_xml(xml)
-            if not entries:
-                break
-            for entry in entries:
-                if entry["published"] < cutoff_str:
-                    continue
-                text = entry["title"] + " " + entry["summary"]
-                matched = match_keywords(text)
-                if matched:
-                    arxiv_id = entry["id"]
-                    is_new = arxiv_id not in cached_ids
-                    results.append((entry, matched, cat, is_new))
-                    if arxiv_id not in new_entries:
-                        new_entries[arxiv_id] = {
-                            "title": entry["title"],
-                            "summary": entry["summary"],
-                            "published": entry["published"],
-                            "id": arxiv_id,
-                            "authors": entry["authors"],
-                            "categories": [cat],
-                            "matched_kw": matched,
-                            "cached_at": datetime.now().isoformat(),
-                        }
-                    else:
-                        new_entries[arxiv_id]["categories"].append(cat)
-                        new_entries[arxiv_id]["matched_kw"] = list(
-                            set(new_entries[arxiv_id]["matched_kw"] + matched)
-                        )
-            oldest = entries[-1]["published"]
-            if oldest < cutoff_str or len(entries) < max_results:
-                break
-            start += max_results
+    def _process_queue(queue: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
+        leftover: list[tuple[str, int, int]] = []
+        for cat, start, page_idx in queue:
+            while page_idx < page_cap:
+                if fetch_state["any_request"]:
+                    delay = random.uniform(*_ARXIV_INTER_REQUEST_SEC)
+                    print(f"[INFO] Sleeping {delay:.1f}s before next arXiv request...", file=sys.stderr)
+                    time.sleep(delay)
+                fetch_state["any_request"] = True
+                print(
+                    f"[INFO] Fetching {cat} start={start} (page {page_idx + 1} of up to {page_cap})...",
+                    file=sys.stderr,
+                )
+                try:
+                    xml = fetch_arxiv(cat, max_results=max_results, start=start)
+                except Exception as e:
+                    print(f"[ERROR] Failed to fetch {cat}: {e}", file=sys.stderr)
+                    leftover.append((cat, start, page_idx))
+                    break
+                entries = parse_arxiv_xml(xml)
+                if not entries:
+                    break
+                for entry in entries:
+                    if entry["published"] < cutoff_str:
+                        continue
+                    text = entry["title"] + " " + entry["summary"]
+                    matched = match_keywords(text)
+                    if matched:
+                        arxiv_id = entry["id"]
+                        is_new = arxiv_id not in cached_ids
+                        results.append((entry, matched, cat, is_new))
+                        if arxiv_id not in new_entries:
+                            new_entries[arxiv_id] = {
+                                "title": entry["title"],
+                                "summary": entry["summary"],
+                                "published": entry["published"],
+                                "id": arxiv_id,
+                                "authors": entry["authors"],
+                                "categories": [cat],
+                                "matched_kw": matched,
+                                "cached_at": datetime.now().isoformat(),
+                            }
+                        else:
+                            new_entries[arxiv_id]["categories"].append(cat)
+                            new_entries[arxiv_id]["matched_kw"] = list(
+                                set(new_entries[arxiv_id]["matched_kw"] + matched)
+                            )
+                oldest = entries[-1]["published"]
+                if oldest < cutoff_str or len(entries) < max_results:
+                    break
+                start += max_results
+                page_idx += 1
+        return leftover
+
+    leftover = _process_queue([(c, 0, 0) for c in cats])
+    if leftover:
+        _, cfg_base, cfg_max = _arxiv_retry_params()
+        cooldown = _second_pass_cooldown(cfg_base, cfg_max)
+        names = ", ".join(c for c, _, _ in leftover)
+        print(
+            f"[INFO] Retrying {len(leftover)} failed categor"
+            f"{'y' if len(leftover) == 1 else 'ies'} later in this run "
+            f"after {cooldown:.1f}s cooldown: {names}",
+            file=sys.stderr,
+        )
+        time.sleep(cooldown)
+        leftover = _process_queue(leftover)
+
+    failed_cats = [c for c, _, _ in leftover]
+    if failed_cats:
+        print(
+            f"[ERROR] Incomplete arXiv scan; still failed after retry: {', '.join(failed_cats)}",
+            file=sys.stderr,
+        )
 
     results.sort(key=lambda x: x[0]["published"], reverse=True)
 
     if not results:
+        if failed_cats:
+            print("FETCH_FAILED")
+            return 2
         print("NO_REPLY")
-        return
+        return 0
 
     # 更新缓存
     if cache_enabled and new_entries:
@@ -320,21 +406,26 @@ def run(
         print(f"   https://arxiv.org/abs/{arxiv_id}")
         print()
 
+    if failed_cats:
+        return 1
+    return 0
 
-if __name__ == "__main__":
-    if "--clear-cache" in sys.argv:
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else list(argv)
+    if "--clear-cache" in args:
         clear_cache()
-        sys.exit(0)
-    if "--stats" in sys.argv:
+        return 0
+    if "--stats" in args:
         print(cache_stats())
-        sys.exit(0)
+        return 0
 
     cat = "all"
     days = 365
     persist_db = True
     max_r = 500
     max_pages = 1
-    for a in sys.argv[1:]:
+    for a in args:
         if a in CATEGORIES:
             cat = a
         elif a.startswith("--days="):
@@ -345,10 +436,14 @@ if __name__ == "__main__":
             max_pages = int(a.split("=", 1)[1])
         elif a == "--no-persist-db":
             persist_db = False
-    run(
+    return run(
         category=cat,
         days_back=days,
         persist_db=persist_db,
         max_results=max_r,
         max_pages_per_category=max_pages,
     )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

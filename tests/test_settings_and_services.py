@@ -9,9 +9,13 @@ from research_library.settings import get_settings, reload_settings
 def test_settings_reads_env(monkeypatch):
     monkeypatch.setenv("RESEARCH_PDF_CHAIN_TOTAL_TOKEN_BUDGET", "12345")
     monkeypatch.setenv("RESEARCH_SEMANTIC_HYBRID", "0")
+    monkeypatch.setenv("RESEARCH_ARXIV_RETRY_ATTEMPTS", "9")
+    monkeypatch.setenv("RESEARCH_HTTP_RETRY_MAX_DELAY", "12.5")
     s = reload_settings()
     assert s.chain_total_token_budget == 12345
     assert s.semantic_hybrid is False
+    assert s.arxiv_retry_attempts == 9
+    assert s.http_retry_max_delay == 12.5
 
 
 def test_settings_cached(monkeypatch):

@@ -293,9 +293,30 @@ research-lib pdf-analyze seed.pdf --reference-chain \
 research-lib arxiv-keywords astro-ph.GA --days=7
 research-lib arxiv-keywords --stats
 research-lib arxiv-keywords --clear-cache
+research-lib arxiv-keywords all --days=2 --no-persist-db   # weekday morning scan
 ```
 
 默认把匹配论文写入 `arxiv_cache.json`，并 **upsert** 到 `library.db`（`--no-persist-db` 可只写缓存）。
+
+### Rate limits
+
+`export.arxiv.org` may return HTTP 429 / 503. The scanner:
+
+- retries those (plus 408/425/500/502/504) with exponential backoff + jitter
+- honors `Retry-After` when the API sends it
+- waits 3–7s between successful requests (arXiv API etiquette)
+- retries a failed category once later in the same run (after the other categories)
+
+Defaults (minutes-scale worst case): 8 attempts, 5s base delay, 180s cap. Override with `RESEARCH_ARXIV_RETRY_ATTEMPTS` / `RESEARCH_ARXIV_RETRY_BASE_DELAY` / `RESEARCH_ARXIV_RETRY_MAX_DELAY` (see `.env.example`). Raising the generic `RESEARCH_HTTP_RETRY_*` knobs also raises these floors when the arXiv-specific vars are left at default.
+
+Exit status / stdout so callers can tell “no matches” from “rate-limited”:
+
+| Situation | stdout | exit |
+|-----------|--------|------|
+| All fetches ok, no keyword hits | `NO_REPLY` | 0 |
+| All fetches ok, some hits | papers | 0 |
+| Some categories failed, some hits | papers | 1 |
+| Every requested fetch failed | `FETCH_FAILED` | 2 |
 
 ---
 
