@@ -61,13 +61,48 @@ def test_ingest_pdf_dry_run_no_ads(monkeypatch: pytest.MonkeyPatch, tmp_path) ->
 
     conn = library_db.connect()
     out = ping.ingest_pdf_file(conn, str(pdf), dry_run=True, require_strong_id=False)
-    assert out["ok"] is False
-    assert "ADS_API_TOKEN" in (out.get("error") or "")
+    # No ADS → uncertain → pending path (still ok)
+    assert out["ok"] is True
+    assert out.get("status") == "pending_metadata"
+    assert out.get("confidence", {}).get("confident") is False
+
+
+def test_ingest_uncertain_creates_pending_no_chunks(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("RESEARCH_LIBRARY_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("RESEARCH_INGEST_AUTO_SEMANTIC_INDEX", "0")
+    monkeypatch.delenv("ADS_API_TOKEN", raising=False)
+    pdf = tmp_path / "u.pdf"
+    pdf.write_bytes(b"%PDF-1.1\n")
+    from research_library.library import db as library_db
+    from research_library.library.ingest_calibrate import (
+        PENDING_METADATA_TAG,
+        PENDING_TITLE,
+        has_pending_metadata,
+    )
+
+    conn = library_db.connect()
+    out = ping.ingest_pdf_file(conn, str(pdf), dry_run=False, copy_to_pdfs=True)
+    assert out["ok"] is True
+    assert out["status"] == "pending_metadata"
+    pid = int(out["paper_id"])
+    row = library_db.get_paper_row(conn, pid)
+    assert row["title"] == PENDING_TITLE
+    assert has_pending_metadata(conn, pid)
+    n = conn.execute(
+        "SELECT COUNT(*) FROM paper_chunks WHERE paper_id = ?", (pid,)
+    ).fetchone()[0]
+    assert n == 0
+    tag = conn.execute(
+        "SELECT tag_key FROM paper_tags WHERE paper_id = ? AND tag_key = ?",
+        (pid, PENDING_METADATA_TAG),
+    ).fetchone()
+    assert tag is not None
 
 
 def test_ingest_pdf_syncs_references(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_LIBRARY_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("ADS_API_TOKEN", "fake")
+    monkeypatch.setenv("RESEARCH_INGEST_AUTO_SEMANTIC_INDEX", "0")
     pdf = tmp_path / "c.pdf"
     pdf.write_bytes(b"%PDF-1.1\n")
 
@@ -123,6 +158,7 @@ def test_ingest_pdf_syncs_references(monkeypatch: pytest.MonkeyPatch, tmp_path) 
 def test_ingest_pdf_skips_references_when_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("RESEARCH_LIBRARY_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("ADS_API_TOKEN", "fake")
+    monkeypatch.setenv("RESEARCH_INGEST_AUTO_SEMANTIC_INDEX", "0")
 
     def boom(bc: str) -> list:  # noqa: ARG001
         raise AssertionError("should not fetch references")

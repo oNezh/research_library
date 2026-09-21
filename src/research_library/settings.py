@@ -59,11 +59,24 @@ class Settings:
     # --- ADS / arXiv ----------------------------------------------------------
     ads_api_token: str = field(default_factory=lambda: _str("ADS_API_TOKEN"))
 
+    # --- Zotero ---------------------------------------------------------------
+    zotero_library_id: str = field(default_factory=lambda: _str("ZOTERO_LIBRARY_ID"))
+    zotero_api_key: str = field(default_factory=lambda: _str("ZOTERO_API_KEY"))
+    zotero_library_type: str = field(
+        default_factory=lambda: _str("ZOTERO_LIBRARY_TYPE", "user")
+    )
+
     # --- LLM ------------------------------------------------------------------
     llm_provider: str = field(
         default_factory=lambda: _str("RESEARCH_LLM_PROVIDER")
         or _str("QF_LLM_PROVIDER")
     )
+    qf_llm_api_key: str = field(default_factory=lambda: _str("QF_LLM_API_KEY"))
+    qf_llm_base_url: str = field(
+        default_factory=lambda: _str("QF_LLM_BASE_URL", "https://api.openai.com/v1")
+    )
+    qf_llm_model: str = field(default_factory=lambda: _str("QF_LLM_MODEL"))
+    minimax_api_key: str = field(default_factory=lambda: _str("MINIMAX_API_KEY"))
     llm_timeout: int = field(default_factory=lambda: _int("RESEARCH_LLM_TIMEOUT", 600))
     llm_max_completion_tokens: int = field(
         default_factory=lambda: _int("RESEARCH_LLM_MAX_COMPLETION_TOKENS", 32768)
@@ -100,6 +113,8 @@ class Settings:
     local_embedding_device: str = field(default_factory=lambda: _str("RESEARCH_LOCAL_EMBEDDING_DEVICE"))
     local_embedding_hf_offline: bool = field(default_factory=lambda: _bool("RESEARCH_LOCAL_EMBEDDING_HF_OFFLINE", False))
     local_embedding_normalize: bool = field(default_factory=lambda: _bool("RESEARCH_LOCAL_EMBEDDING_NORMALIZE", False))
+    openai_api_key: str = field(default_factory=lambda: _str("RESEARCH_OPENAI_API_KEY"))
+    openai_base_url: str = field(default_factory=lambda: _str("RESEARCH_OPENAI_BASE_URL"))
 
     # --- PDF analyze ----------------------------------------------------------
     pdf_analyze_max_chars: int = field(default_factory=lambda: _int("RESEARCH_PDF_ANALYZE_MAX_CHARS", 100000))

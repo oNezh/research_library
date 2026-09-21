@@ -185,11 +185,14 @@ def parse_arxiv_xml(xml_text):
 
 
 def match_keywords(text):
+    from research_library.arxiv_keyword_settings import keyword_map
+
+    keywords = keyword_map()
     text_lower = text.lower()
     matched = []
-    for kw in KEYWORDS:
+    for kw, label in keywords.items():
         if kw.lower() in text_lower:
-            matched.append(KEYWORDS[kw])
+            matched.append(label)
     return matched
 
 

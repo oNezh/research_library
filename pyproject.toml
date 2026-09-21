@@ -21,7 +21,9 @@ semantic = ["chromadb>=0.5.0"]
 semantic-local = ["sentence-transformers>=3.0.0"]
 tex-source = ["beautifulsoup4>=4.12.0"]
 tex-local = ["pylatexenc>=2.10"]
-dev = ["research-library[pdf,mcp,semantic,tex-source,tex-local]", "pytest>=7.0"]
+zotero = ["pyzotero>=1.6"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "sse-starlette>=2.0", "python-multipart>=0.0.9"]
+dev = ["research-library[pdf,mcp,semantic,tex-source,tex-local,zotero,server]", "pytest>=7.0", "httpx>=0.27"]
 
 [project.scripts]
 research-lib = "research_library.cli:main"

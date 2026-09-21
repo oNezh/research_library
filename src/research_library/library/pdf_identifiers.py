@@ -30,9 +30,64 @@ def _split_front_matter(clean: Optional[str]) -> str:
 
 _MASTHEAD_HINT = re.compile(
     r"MNRAS|A\&A|A&A|Monthly\s+Notices|Astronomy\s+and\s+Astrophysics|"
-    r"Astron\.|^\s*ApJ\b|The\s+Astrophysical\s+Journal|^\s*Nature\b|^\s*Science\b",
+    r"Research\s*in\s*Astronomy\s*and\s*Astrophysics|\bRAA\b|"
+    r"Astron\.|^\s*ApJ\b|The\s+Astrophysical\s+Journal|^\s*Nature\b|^\s*Science\b|"
+    r"raa-journal\.org|iop\.org/journals/raa",
     re.IGNORECASE,
 )
+
+_JUNK_TITLE_LINE = re.compile(
+    r"https?://|www\.\w|^\s*\(?\s*LATEX\b|printed\s+on\s+\w+\s+\d|"
+    r"ms\d{4}-\d+\.tex|Compiled\s+using|style\s+file\s+v\d|"
+    r"^\s*Preprint\b|^\s*Received\b|^\s*Accepted\b|^\s*Revised\b|"
+    r"^\s*ABSTRACT\b|^\s*Key\s*words\b|^\s*Keywords\b|"
+    r"call\s+for\s+papers|special\s+issue\s+on|"
+    r"^\s*Research\s*in\s*Astronomy\s*and\s*Astrophysics\s*$|"
+    r"^\s*Astronomy\s+and\s+Astrophysics\s*$|"
+    r"^\s*Monthly\s+Notices\b",
+    re.IGNORECASE,
+)
+
+_JUNK_TITLE_FULL = re.compile(
+    r"call\s+for\s+papers|special\s+issue\s+on|^editorial\b|^erratum\b|"
+    r"^corrigendum\b|table\s+of\s+contents|^news\s+and\s+views\b|"
+    r"^press\s+release\b|^announcement\b",
+    re.IGNORECASE,
+)
+
+
+def is_junk_title(title: str) -> bool:
+    t = (title or "").strip()
+    if not t:
+        return False
+    if _JUNK_TITLE_FULL.search(t):
+        return True
+    words = t.split()
+    if len(words) >= 6:
+        half = len(words) // 2
+        if " ".join(words[:half]).lower() == " ".join(words[half:]).lower():
+            return True
+    return False
+
+
+def is_usable_title_candidate(title: Optional[str]) -> bool:
+    """Reject URL/LaTeX/journal-masthead noise that is not a paper title."""
+    t = re.sub(r"\s+", " ", (title or "").strip())
+    if not t or len(t) < 12 or len(t) > 520:
+        return False
+    if _JUNK_TITLE_LINE.search(t):
+        return False
+    if is_junk_title(t):
+        return False
+    if t.lower().startswith("http"):
+        return False
+    words = [w for w in t.split() if w]
+    if len(words) < 3:
+        return False
+    urlish = sum(1 for w in words if "://" in w or w.startswith("www.") or ".org" in w.lower())
+    if urlish >= 1 and urlish >= max(1, len(words) // 4):
+        return False
+    return True
 
 
 def _authorish_line(ln: str) -> bool:
@@ -66,23 +121,32 @@ def _title_from_front_matter(front: str) -> Optional[str]:
     if start is None:
         return None
     block: List[str] = []
-    for j in range(start, min(start + 10, len(lines))):
+    for j in range(start, min(start + 14, len(lines))):
         ln = lines[j]
         if re.match(
-            r"^(Preprint|Compiled|Received|Accepted|Revised|Key\s+words)\b",
+            r"^(Preprint|Compiled|Received|Accepted|Revised|Key\s+words|Keywords|ABSTRACT)\b",
             ln,
             re.I,
         ):
+            if block:
+                break
+            continue
+        if _JUNK_TITLE_LINE.search(ln):
             continue
         if len(ln) < 6:
             continue
         if _authorish_line(ln):
             break
         block.append(ln)
+        if len(block) >= 1 and is_usable_title_candidate(" ".join(block)):
+            if j + 1 < len(lines) and _authorish_line(lines[j + 1]):
+                break
+            if len(" ".join(block)) > 80:
+                break
     if not block:
         return None
     title = re.sub(r"\s+", " ", " ".join(block).strip())
-    if 25 <= len(title) <= 520:
+    if is_usable_title_candidate(title):
         return title
     return None
 
@@ -111,6 +175,8 @@ def _title_candidate_from_clean_text(clean_text: Optional[str]) -> Optional[str]
         return None
     lines = [l.strip() for l in clean_text.splitlines() if 10 < len(l.strip()) < 200]
     for line in lines[:100]:
+        if _JUNK_TITLE_LINE.search(line):
+            continue
         words = line.split()
         if not (4 <= len(words) <= 35):
             continue
@@ -119,7 +185,7 @@ def _title_candidate_from_clean_text(clean_text: Optional[str]) -> Optional[str]
                 continue
             clean_line = re.sub(r"\s+", " ", line).strip()
             clean_line = re.sub(r"\s+[A&E]&&,\s+\d+.*$", "", clean_line)
-            if 10 < len(clean_line) < 200:
+            if is_usable_title_candidate(clean_line):
                 return clean_line
     return None
 
@@ -164,6 +230,8 @@ def extract_pdf_identifiers(
     front = _split_front_matter(clean)
     mast_title = _title_from_front_matter(front)
     title = mast_title or _title_candidate_from_clean_text(clean)
+    if title and not is_usable_title_candidate(title):
+        title = None
 
     doi = _doi_from_text(front)
     if not doi and clean:

@@ -394,8 +394,12 @@ def _pdf_links_from_esource_records(records: Any) -> Dict[str, Optional[str]]:
                 out["arxiv"] = u
         elif "PUB_PDF" in lt:
             out["pub"] = u
-        elif "ADS_PDF" in lt or "ADS_SCAN" in lt:
+        elif "ADS_PDF" in lt:
             out["ads"] = u
+        elif "ADS_SCAN" in lt:
+            # Prefer ADS_PDF; ADSSCAN (/full/) is often WAF-blocked and not a real PDF.
+            if not out.get("ads"):
+                out["ads"] = u
     return out
 
 

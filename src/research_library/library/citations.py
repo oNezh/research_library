@@ -208,6 +208,7 @@ def build_citation_graph(
     *,
     min_hub_citing_papers: int = 2,
     mermaid_max_nodes: int = 48,
+    include_mermaid: bool = True,
 ) -> Dict[str, Any]:
     library_db.ensure_schema(conn)
     prow = conn.execute(
@@ -288,12 +289,14 @@ def build_citation_graph(
         )
     nodes_out.extend(ghost_nodes)
 
-    mermaid = _mermaid_mindmap(
-        papers,
-        edges_out,
-        hubs,
-        max_nodes=mermaid_max_nodes,
-    )
+    mermaid = ""
+    if include_mermaid:
+        mermaid = _mermaid_mindmap(
+            papers,
+            edges_out,
+            hubs,
+            max_nodes=mermaid_max_nodes,
+        )
 
     return {
         "nodes": nodes_out,

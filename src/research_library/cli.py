@@ -62,6 +62,11 @@ def main() -> None:
     p_lib = sub.add_parser("library", help="Local SQLite literature index (FTS5)")
     p_lib.add_argument("library_args", nargs=argparse.REMAINDER)
 
+    p_srv = sub.add_parser("serve", help="Local HTTP server for the desktop app (FastAPI)")
+    p_srv.add_argument("--host", default="127.0.0.1")
+    p_srv.add_argument("--port", type=int, default=8230)
+    p_srv.add_argument("--reload", action="store_true", help="Auto-reload on code changes (dev)")
+
     args = parser.parse_args()
 
     if args.command == "lookup":
@@ -105,6 +110,12 @@ def main() -> None:
         from research_library.library.cli import main as library_main
 
         sys.exit(library_main(getattr(args, "library_args", None) or []))
+
+    if args.command == "serve":
+        from research_library.server.app import serve
+
+        serve(host=args.host, port=args.port, reload=bool(args.reload))
+        sys.exit(0)
 
     sys.exit(1)
 

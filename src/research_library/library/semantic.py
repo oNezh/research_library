@@ -210,11 +210,15 @@ def resolve_text_source_for_paper(
     paper_id: int,
     *,
     try_fetch_tex: Optional[bool] = None,
+    allow_pdf_fallback: bool = True,
 ) -> Tuple[Optional[str], str, Optional[List[Any]], Optional[str], Dict[str, Any]]:
     """Resolve prose for embedding: cached TeX → fetch TeX chain → PDF.
 
     TeX fetch uses ``ar5iv → local tarball backend`` (see :mod:`tex_to_text`).
     Returns ``(text, source_kind, sections, source_path, meta)``.
+
+    When ``allow_pdf_fallback`` is False, skip PDF text (used when arXiv source
+    is required and must not silently index a mismatched PDF).
     """
     meta: Dict[str, Any] = {}
     text, kind, sections, path = _read_stored_tex_source(conn, paper_id)
@@ -236,10 +240,13 @@ def resolve_text_source_for_paper(
                 meta["source_resolution"] = "fetched_tex"
                 return text, kind, sections, path, meta
 
-    text, kind, sections, path = _read_pdf_source(conn, paper_id)
-    if text and kind:
-        meta["source_resolution"] = "pdf"
-        return text, kind, sections, path, meta
+    if allow_pdf_fallback:
+        text, kind, sections, path = _read_pdf_source(conn, paper_id)
+        if text and kind:
+            meta["source_resolution"] = "pdf"
+            return text, kind, sections, path, meta
+    else:
+        meta["pdf_fallback_skipped"] = True
 
     return None, "", None, None, meta
 
@@ -318,6 +325,8 @@ def index_paper(
     force: bool = False,
     collection: Any | None = None,
     semantic_backend: str | None = None,
+    allow_pdf_fallback: bool = True,
+    try_fetch_tex: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Chunk a paper's source text (TeX-derived if available, else PDF) into ``paper_chunks``.
 
@@ -342,12 +351,17 @@ def index_paper(
             return {"ok": True, "paper_id": paper_id, "skipped": True, "chunks": int(cur[0])}
 
     text, source_kind, sections, source_path, source_meta = resolve_text_source_for_paper(
-        conn, paper_id
+        conn,
+        paper_id,
+        try_fetch_tex=try_fetch_tex,
+        allow_pdf_fallback=allow_pdf_fallback,
     )
     if not text or not source_kind:
         err = "no_source_text"
         if source_meta.get("tex_fetch_attempted"):
             err = "tex_and_pdf_unavailable"
+        if source_meta.get("pdf_fallback_skipped"):
+            err = "no_tex_source"
         return {"ok": False, "paper_id": paper_id, "error": err, **source_meta}
 
     triples = chunk_text(text)

@@ -338,6 +338,54 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     p_dedupe.add_argument("--json", action="store_true")
 
+    p_zot = sub.add_parser("zotero", help="Zotero Web API sync (pyzotero)")
+    p_zot_sub = p_zot.add_subparsers(dest="zotero_cmd", required=True)
+    p_zot_sub.add_parser("status", help="Local/Zotero link counts and API reachability")
+    p_z_pull = p_zot_sub.add_parser("pull", help="Zotero -> local library (incremental or --full)")
+    p_z_pull.add_argument(
+        "--full",
+        action="store_true",
+        help="Full import (since=0); local library will contain all Zotero bibliographic items",
+    )
+    p_z_pull.add_argument("--no-pdf", action="store_true", help="Skip PDF download from Zotero")
+    p_z_pull.add_argument("--no-index", action="store_true", help="Skip semantic index after pull")
+    p_z_push = p_zot_sub.add_parser("push", help="Local -> Zotero (create only, no updates)")
+    p_z_push.add_argument("--no-pdf", action="store_true", help="Skip PDF attachment upload")
+    p_z_push.add_argument(
+        "--with-notes",
+        action="store_true",
+        help="Add local abstract as a Zotero note child item",
+    )
+    p_z_push.add_argument(
+        "--refresh-metadata",
+        action="store_true",
+        help="Update already-linked Zotero items with local + ADS metadata",
+    )
+    p_zot_sub.add_parser("link", help="Link existing rows by DOI/arXiv (no content changes)")
+    p_z_backfill = p_zot_sub.add_parser(
+        "backfill",
+        help="Re-fetch ADS metadata for local Unknown-author papers and push to Zotero",
+    )
+    p_z_backfill.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Seconds between ADS requests (default: 1.0)",
+    )
+    p_z_backfill.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Update local library only; do not push to Zotero",
+    )
+    p_z_sync = p_zot_sub.add_parser("sync", help="link -> pull -> push (one-shot align)")
+    p_z_sync.add_argument(
+        "--full",
+        action="store_true",
+        help="Full Zotero pull in sync (since=0)",
+    )
+    p_z_sync.add_argument("--no-pdf", action="store_true")
+    p_z_sync.add_argument("--no-index", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "init":
@@ -780,6 +828,55 @@ def main(argv: Optional[List[str]] = None) -> int:
             elif not bool(getattr(args, "no_synth", False)):
                 print("(no markdown; check chunks / LLM)", file=sys.stderr)
         return 0
+
+    if args.cmd == "zotero":
+        from research_library.library import zotero_sync as zs
+
+        conn = db.connect()
+        zcmd = args.zotero_cmd
+        if zcmd == "status":
+            print(json.dumps(zs.status(conn), ensure_ascii=False, indent=2))
+            return 0
+        if zcmd == "link":
+            out = zs.link(conn)
+            conn.commit()
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0 if out.get("ok") else 1
+        if zcmd == "pull":
+            out = zs.pull(
+                conn,
+                full=bool(args.full),
+                download_pdf=not bool(args.no_pdf),
+                do_index=not bool(args.no_index),
+            )
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0 if out.get("ok") else 1
+        if zcmd == "push":
+            out = zs.push(
+                conn,
+                with_pdf=not bool(args.no_pdf),
+                with_notes=bool(args.with_notes),
+                refresh_linked=bool(getattr(args, "refresh_metadata", False)),
+            )
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0 if out.get("ok") else 1
+        if zcmd == "sync":
+            out = zs.sync_all(
+                conn,
+                full=bool(args.full),
+                with_pdf=not bool(args.no_pdf),
+                do_index=not bool(args.no_index),
+            )
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0 if out.get("ok") else 1
+        if zcmd == "backfill":
+            out = zs.backfill_unknown(
+                conn,
+                delay=float(getattr(args, "delay", 1.0)),
+                push_zotero=not bool(getattr(args, "no_push", False)),
+            )
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0 if out.get("ok") else 1
 
     return 1
 

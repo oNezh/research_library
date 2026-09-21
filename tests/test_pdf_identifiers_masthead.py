@@ -28,6 +28,39 @@ We study clusters.
     assert "Zhen Wan" not in t
 
 
+def test_rejects_raa_url_latex_header_as_title():
+    from research_library.library.pdf_identifiers import (
+        is_usable_title_candidate,
+        _title_candidate_from_clean_text,
+        _title_from_front_matter,
+    )
+
+    junk = (
+        "http://www.raa-journal.org (LATEX: ms2025-0552.tex; printed on March 16, 2026; 1:14) "
+        "http://www.iop.org/journals/raa Researchin Astronomyand Astrophysics"
+    )
+    assert is_usable_title_candidate(junk) is False
+
+    front = """
+http://www.raa-journal.org
+(LATEX: ms2025-0552.tex; printed on March 16, 2026; 1:14)
+http://www.iop.org/journals/raa
+Research in Astronomy and Astrophysics
+A real paper title about stellar streams in the Milky Way
+Author Name1
+1Department of Astronomy
+ABSTRACT
+Text.
+"""
+    t = _title_from_front_matter(front)
+    assert t is not None
+    assert "stellar streams" in t
+    assert "http" not in t.lower()
+    assert "LATEX" not in t
+
+    assert _title_candidate_from_clean_text(junk) is None
+
+
 def test_extract_skips_raw_doi_when_masthead_title(monkeypatch, tmp_path):
     """Raw strings may list unrelated DOIs first; masthead title must block raw fallback."""
     from research_library.library import pdf_identifiers as pi

@@ -15,3 +15,6 @@ build/
 *.log
 chain_runs/*
 !chain_runs/*.sh
+
+# Local audit caches
+.audit_*.json

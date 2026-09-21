@@ -35,6 +35,20 @@ def _first_local_snapshot(hf_home: Path, hub_model_id: str) -> Path | None:
     return None
 
 
+def _list_cached_hub_model_ids(hf_home: Path) -> list[str]:
+    hub = hf_home / "hub"
+    if not hub.is_dir():
+        return []
+    out: list[str] = []
+    for child in sorted(hub.iterdir()):
+        if not child.is_dir() or not child.name.startswith("models--"):
+            continue
+        name = child.name[len("models--") :].replace("--", "/", 1)
+        if _first_local_snapshot(hf_home, name) is not None:
+            out.append(name)
+    return out
+
+
 class LocalSentenceTransformerEmbeddings:
     """HF / SentenceTransformer models loaded locally (GPU or CPU).
 
@@ -149,10 +163,21 @@ class LocalSentenceTransformerEmbeddings:
             (os.environ.get("RESEARCH_LOCAL_EMBEDDING_MODEL") or "").strip()
             or "Qwen/Qwen3-Embedding-4B"
         )
-        if _env_truthy("RESEARCH_LOCAL_EMBEDDING_HF_OFFLINE") or _env_truthy("HF_HUB_OFFLINE"):
-            snap = _first_local_snapshot(hf_home, model)
-            if snap is not None:
-                model = str(snap)
+        offline = _env_truthy("RESEARCH_LOCAL_EMBEDDING_HF_OFFLINE") or _env_truthy("HF_HUB_OFFLINE")
+        snap = _first_local_snapshot(hf_home, model)
+        if snap is not None:
+            model = str(snap)
+        elif offline:
+            cached = _list_cached_hub_model_ids(hf_home)
+            hint = (
+                f"Local embedding model {model!r} is not in HF cache at {hf_home}. "
+                f"Offline mode is on (RESEARCH_LOCAL_EMBEDDING_HF_OFFLINE=1)."
+            )
+            if cached:
+                hint += f" Cached models: {', '.join(cached)}. Set RESEARCH_LOCAL_EMBEDDING_MODEL accordingly."
+            else:
+                hint += " No embedding models found in cache; download once online or switch to an online embedding API in Settings."
+            raise LLMError(hint)
         device = (os.environ.get("RESEARCH_LOCAL_EMBEDDING_DEVICE") or "").strip() or None
         trc = (os.environ.get("RESEARCH_LOCAL_EMBEDDING_TRUST_REMOTE_CODE") or "").strip().lower() in (
             "1",

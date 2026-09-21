@@ -19,7 +19,7 @@ def db_path() -> Path:
 def connect() -> sqlite3.Connection:
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30.0)
+    conn = sqlite3.connect(str(path), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     for pragma in (
@@ -89,6 +89,22 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     _ensure_pdf_relpath_index(conn)
     _ensure_papers_source_columns(conn)
     _ensure_semantic_tables(conn)
+    _ensure_papers_doi_column(conn)
+    _ensure_papers_notes_column(conn)
+    _ensure_zotero_tables(conn)
+
+
+def _ensure_papers_notes_column(conn: sqlite3.Connection) -> None:
+    try:
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()}
+    except sqlite3.OperationalError:
+        return
+    if "notes" not in existing:
+        try:
+            conn.execute("ALTER TABLE papers ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
 
 
 def _ensure_pdf_relpath_index(conn: sqlite3.Connection) -> None:
@@ -135,6 +151,255 @@ def _ensure_papers_source_columns(conn: sqlite3.Connection) -> None:
         pass
     if altered:
         conn.commit()
+
+
+def _ensure_papers_doi_column(conn: sqlite3.Connection) -> None:
+    try:
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()}
+    except sqlite3.OperationalError:
+        return
+    if "doi" not in existing:
+        try:
+            conn.execute("ALTER TABLE papers ADD COLUMN doi TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi)")
+        conn.commit()
+    except sqlite3.OperationalError:
+        conn.rollback()
+
+
+def _ensure_zotero_tables(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS zotero_links (
+            paper_id INTEGER NOT NULL PRIMARY KEY,
+            zotero_key TEXT NOT NULL UNIQUE,
+            zotero_version INTEGER NOT NULL DEFAULT 0,
+            doi TEXT,
+            arxiv_id TEXT,
+            last_push_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (paper_id) REFERENCES papers(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_zotero_links_key ON zotero_links(zotero_key);
+        CREATE INDEX IF NOT EXISTS idx_zotero_links_doi ON zotero_links(doi);
+        CREATE INDEX IF NOT EXISTS idx_zotero_links_arxiv ON zotero_links(arxiv_id);
+
+        CREATE TABLE IF NOT EXISTS zotero_sync_state (
+            library_id TEXT PRIMARY KEY,
+            last_pull_version INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+
+def _norm_doi_value(doi: Optional[str]) -> Optional[str]:
+    s = (doi or "").strip().lower()
+    if s.startswith("doi:"):
+        s = s[4:].strip()
+    return s or None
+
+
+def get_paper_id_by_zotero_key(conn: sqlite3.Connection, zotero_key: str) -> Optional[int]:
+    ensure_schema(conn)
+    row = conn.execute(
+        "SELECT paper_id FROM zotero_links WHERE zotero_key = ?",
+        (zotero_key.strip(),),
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+def get_paper_id_by_doi(conn: sqlite3.Connection, doi: str) -> Optional[int]:
+    ensure_schema(conn)
+    d = _norm_doi_value(doi)
+    if not d:
+        return None
+    row = conn.execute(
+        "SELECT id FROM papers WHERE LOWER(TRIM(doi)) = ?",
+        (d,),
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+def upsert_zotero_link(
+    conn: sqlite3.Connection,
+    *,
+    paper_id: int,
+    zotero_key: str,
+    zotero_version: int = 0,
+    doi: Optional[str] = None,
+    arxiv_id: Optional[str] = None,
+    commit: bool = False,
+) -> None:
+    ensure_schema(conn)
+    now = _now_iso()
+    key = zotero_key.strip()
+    d = _norm_doi_value(doi)
+    ax = (arxiv_id or "").strip() or None
+    row = conn.execute(
+        "SELECT paper_id FROM zotero_links WHERE zotero_key = ?",
+        (key,),
+    ).fetchone()
+    if row:
+        conn.execute(
+            """
+            UPDATE zotero_links SET
+                paper_id = ?,
+                zotero_version = ?,
+                doi = COALESCE(?, doi),
+                arxiv_id = COALESCE(?, arxiv_id),
+                updated_at = ?
+            WHERE zotero_key = ?
+            """,
+            (paper_id, int(zotero_version), d, ax, now, key),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO zotero_links (
+                paper_id, zotero_key, zotero_version, doi, arxiv_id,
+                last_push_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+            """,
+            (paper_id, key, int(zotero_version), d, ax, now, now),
+        )
+    if commit:
+        conn.commit()
+
+
+def get_zotero_sync_version(conn: sqlite3.Connection, library_id: str) -> int:
+    ensure_schema(conn)
+    row = conn.execute(
+        "SELECT last_pull_version FROM zotero_sync_state WHERE library_id = ?",
+        (library_id.strip(),),
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def set_zotero_sync_version(
+    conn: sqlite3.Connection,
+    library_id: str,
+    version: int,
+    *,
+    commit: bool = False,
+) -> None:
+    ensure_schema(conn)
+    now = _now_iso()
+    lid = library_id.strip()
+    row = conn.execute(
+        "SELECT library_id FROM zotero_sync_state WHERE library_id = ?",
+        (lid,),
+    ).fetchone()
+    if row:
+        conn.execute(
+            """
+            UPDATE zotero_sync_state SET last_pull_version = ?, updated_at = ?
+            WHERE library_id = ?
+            """,
+            (int(version), now, lid),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO zotero_sync_state (library_id, last_pull_version, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            (lid, int(version), now),
+        )
+    if commit:
+        conn.commit()
+
+
+def list_unlinked_paper_ids(conn: sqlite3.Connection) -> List[int]:
+    ensure_schema(conn)
+    rows = conn.execute(
+        """
+        SELECT p.id FROM papers p
+        LEFT JOIN zotero_links z ON z.paper_id = p.id
+        WHERE z.paper_id IS NULL AND TRIM(COALESCE(p.title, '')) != ''
+        ORDER BY p.id
+        """
+    ).fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def list_zotero_links(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    ensure_schema(conn)
+    rows = conn.execute(
+        """
+        SELECT paper_id, zotero_key, zotero_version, doi, arxiv_id
+        FROM zotero_links
+        ORDER BY paper_id
+        """
+    ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def zotero_sync_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
+    ensure_schema(conn)
+    linked = conn.execute("SELECT COUNT(*) FROM zotero_links").fetchone()[0]
+    unlinked_local = len(list_unlinked_paper_ids(conn))
+    return {
+        "linked": int(linked),
+        "unlinked_local": int(unlinked_local),
+        "local_total": int(conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]),
+    }
+
+
+def insert_paper_minimal(
+    conn: sqlite3.Connection,
+    *,
+    title: str,
+    abstract: str = "",
+    authors: Optional[List[str]] = None,
+    published: Optional[str] = None,
+    doi: Optional[str] = None,
+    arxiv_id: Optional[str] = None,
+    bibcode: Optional[str] = None,
+    source: str = "zotero_pull",
+    pdf_relpath: Optional[str] = None,
+    commit: bool = True,
+) -> int:
+    """Insert a paper row when no existing match (title-only Zotero items)."""
+    ensure_schema(conn)
+    now = _now_iso()
+    authors = authors or []
+    conn.execute(
+        """
+        INSERT INTO papers (
+            arxiv_id, bibcode, doi, title, abstract,
+            authors_json, categories_json, matched_keywords_json,
+            published, source, pdf_relpath, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, '[]', '[]', ?, ?, ?, ?, ?)
+        """,
+        (
+            arxiv_id,
+            bibcode,
+            _norm_doi_value(doi),
+            title or "",
+            abstract or "",
+            json.dumps(authors, ensure_ascii=False),
+            published,
+            source,
+            pdf_relpath,
+            now,
+            now,
+        ),
+    )
+    pid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    conn.execute(
+        "INSERT INTO papers_fts(paper_id, title, abstract) VALUES (?, ?, ?)",
+        (pid, title or "", abstract or ""),
+    )
+    if commit:
+        conn.commit()
+    return pid
 
 
 def _ensure_paper_references_table(conn: sqlite3.Connection) -> None:
@@ -767,14 +1032,16 @@ def upsert_paper(
     matched_keywords: Optional[List[str]] = None,
     published: Optional[str] = None,
     bibcode: Optional[str] = None,
+    doi: Optional[str] = None,
     source: str = "manual",
     pdf_relpath: Optional[str] = None,
     commit: bool = True,
 ) -> int:
-    """Insert or update by arxiv_id and/or bibcode (at least one required)."""
+    """Insert or update by arxiv_id, bibcode, and/or doi (at least one required)."""
     ensure_schema(conn)
-    if not arxiv_id and not bibcode:
-        raise ValueError("arxiv_id or bibcode is required for upsert")
+    doi_norm = _norm_doi_value(doi)
+    if not arxiv_id and not bibcode and not doi_norm:
+        raise ValueError("arxiv_id, bibcode, or doi is required for upsert")
     authors = authors or []
     categories = categories or []
     matched_keywords = matched_keywords or []
@@ -790,6 +1057,12 @@ def upsert_paper(
     if row is None and bibcode:
         cur = conn.execute("SELECT id FROM papers WHERE bibcode = ?", (bibcode,))
         row = cur.fetchone()
+    if row is None and doi_norm:
+        cur = conn.execute(
+            "SELECT id FROM papers WHERE LOWER(TRIM(doi)) = ?",
+            (doi_norm,),
+        )
+        row = cur.fetchone()
 
     if row:
         pid = int(row[0])
@@ -798,6 +1071,7 @@ def upsert_paper(
             UPDATE papers SET
                 arxiv_id = COALESCE(?, arxiv_id),
                 bibcode = COALESCE(?, bibcode),
+                doi = COALESCE(?, doi),
                 title = ?,
                 abstract = ?,
                 authors_json = ?,
@@ -812,6 +1086,7 @@ def upsert_paper(
             (
                 arxiv_id,
                 bibcode,
+                doi_norm,
                 title,
                 abstract or "",
                 authors_json,
@@ -829,14 +1104,15 @@ def upsert_paper(
         conn.execute(
             """
             INSERT INTO papers (
-                arxiv_id, bibcode, title, abstract,
+                arxiv_id, bibcode, doi, title, abstract,
                 authors_json, categories_json, matched_keywords_json,
                 published, source, pdf_relpath, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 arxiv_id,
                 bibcode,
+                doi_norm,
                 title,
                 abstract or "",
                 authors_json,
@@ -888,6 +1164,9 @@ def search_fts(conn: sqlite3.Connection, query: str, limit: int = 20) -> List[Di
     q = query.strip()
     if not q:
         return []
+    safe = _fts_match_terms(q)
+    if not safe:
+        return []
     sql = """
         SELECT p.* FROM papers p
         INNER JOIN papers_fts ON p.id = papers_fts.paper_id
@@ -895,15 +1174,10 @@ def search_fts(conn: sqlite3.Connection, query: str, limit: int = 20) -> List[Di
         ORDER BY bm25(papers_fts)
         LIMIT ?
     """
-    token = q.replace('"', '""')
     try:
-        rows = conn.execute(sql, (token, limit)).fetchall()
-    except sqlite3.OperationalError:
-        parts = [p for p in q.split() if p]
-        if not parts:
-            return []
-        safe = " AND ".join(p.replace('"', '""') for p in parts)
         rows = conn.execute(sql, (safe, limit)).fetchall()
+    except sqlite3.OperationalError:
+        return []
     out = []
     for r in rows:
         d = _row_to_dict(r)

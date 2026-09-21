@@ -101,6 +101,14 @@ def resolve_extracted_to_ads_match(
     doi = (extracted.get("doi") or "").strip() or None
     arxiv_id = (extracted.get("arxiv_id") or "").strip() or None
     title = (extracted.get("title_candidate") or "").strip() or None
+    if title:
+        from research_library.library.pdf_identifiers import (
+            is_junk_title,
+            is_usable_title_candidate,
+        )
+
+        if not is_usable_title_candidate(title) or is_junk_title(title):
+            title = None
 
     if require_strong_id and not doi and not arxiv_id:
         return {
@@ -138,9 +146,23 @@ def resolve_extracted_to_ads_match(
             docs = result.get("response", {}).get("docs", [])
             if docs:
                 docs = _prefer_ads_docs(docs)
-                thin_doc = docs[0]
-                match_method = "title"
-                candidates = [_summarize_doc(d) for d in docs]
+                from research_library.library.pdf_identifiers import is_junk_title
+                from research_library.lookup import similarity
+
+                picked = None
+                for d in docs:
+                    tl = d.get("title") or []
+                    cand = " ".join(str(tl[0]).split()) if tl else ""
+                    if is_junk_title(cand):
+                        continue
+                    if similarity(cand, title) < 0.45:
+                        continue
+                    picked = d
+                    break
+                if picked is not None:
+                    thin_doc = picked
+                    match_method = "title"
+                    candidates = [_summarize_doc(d) for d in docs]
 
         if (
             thin_doc is not None
@@ -345,14 +367,22 @@ def ingest_pdf_file(
     preresolved: Optional[Dict[str, Any]] = None,
     extracted_override: Optional[Dict[str, Any]] = None,
     sync_references: Optional[bool] = None,
+    allow_pending: bool = True,
 ) -> Dict[str, Any]:
     """Extract identifiers from PDF, resolve in ADS, upsert ``papers`` + ``pdf_relpath``.
 
-    If ``preresolved`` is set (from :func:`resolve_extracted_to_ads_match`), skip ADS queries.
+    Confident strong-ID / high-sim title matches write full ADS metadata, fetch
+    ar5iv when possible, and embed. Uncertain matches (when ``allow_pending``)
+    create a placeholder row tagged ``pending_metadata`` **without** embedding.
 
-    After a successful DB ingest, by default loads ADS reference bibcodes into ``paper_references``
-    (disable with ``sync_references=False`` or env ``RESEARCH_PDF_INGEST_SYNC_REFERENCES=0``).
+    If ``preresolved`` is set (from :func:`resolve_extracted_to_ads_match`), skip ADS queries.
     """
+    from research_library.library.ingest_calibrate import (
+        after_confident_ingest,
+        assess_ingest_confidence,
+        create_pending_pdf_paper,
+    )
+
     path = str(Path(pdf_abs).expanduser().resolve())
     if not Path(path).is_file():
         return {"ok": False, "error": f"file not found: {path}"}
@@ -385,8 +415,9 @@ def ingest_pdf_file(
             require_strong_id=require_strong_id,
         )
 
+    confidence = assess_ingest_confidence(extracted, resolved)
     out: Dict[str, Any] = {
-        "ok": resolved["ok"],
+        "ok": False,
         "error": resolved.get("error"),
         "dry_run": dry_run,
         "match_method": resolved.get("match_method"),
@@ -397,11 +428,56 @@ def ingest_pdf_file(
         "pdf_path_stored": path,
         "placement": {"mode": "in_place", "path": path},
         "paper_id": None,
+        "confidence": confidence,
+        "status": None,
     }
 
-    if not resolved["ok"] or not resolved.get("doc"):
+    # --- pending path: no ADS write / no embed ---
+    if not confidence.get("confident"):
+        if not allow_pending:
+            out["ok"] = False
+            out["status"] = "rejected_uncertain"
+            if not out.get("error"):
+                out["error"] = confidence.get("reason") or "uncertain_match"
+            return out
+
+        final_path, placement = _place_pdf_in_library(
+            path,
+            bibcode=None,
+            arxiv_id=extracted.get("arxiv_id"),
+            copy_to_pdfs=copy_to_pdfs,
+            symlink_to_pdfs=symlink_to_pdfs and not copy_to_pdfs,
+        )
+        out["pdf_path_stored"] = final_path
+        out["placement"] = placement
+        relp = library_pdf_relpath(final_path)
+        out["pdf_relpath"] = relp
+        if dry_run:
+            out["ok"] = True
+            out["status"] = "pending_metadata"
+            out["pdf_relpath_would_be"] = relp
+            return out
+
+        library_db.ensure_schema(conn)
+        pid = create_pending_pdf_paper(
+            conn,
+            pdf_relpath=relp,
+            extracted=extracted,
+            reason=str(confidence.get("reason") or "uncertain"),
+            source=f"{source}_pending" if source else "library_ingest_pdf_pending",
+            resolved_summary={
+                "match_method": resolved.get("match_method"),
+                "bibcode": resolved.get("bibcode"),
+                "error": resolved.get("error"),
+            },
+        )
+        out["ok"] = True
+        out["status"] = "pending_metadata"
+        out["paper_id"] = pid
+        out["error"] = None
         return out
 
+    # --- confident path ---
     doc = resolved["doc"]
     bc = (doc.get("bibcode") or "").strip() or None
     _, arx = choose_identifier(doc.get("identifier") or [])
@@ -418,6 +494,8 @@ def ingest_pdf_file(
     relp = library_pdf_relpath(final_path)
 
     if dry_run:
+        out["ok"] = True
+        out["status"] = "confident"
         out["pdf_relpath_would_be"] = relp
         return out
 
@@ -433,6 +511,9 @@ def ingest_pdf_file(
     if row:
         out["paper_id"] = int(row[0])
     out["pdf_relpath"] = relp
+    out["ok"] = True
+    out["status"] = "confident"
+    out["error"] = None
 
     do_sync = (
         _default_sync_references_on_ingest()
@@ -450,13 +531,17 @@ def ingest_pdf_file(
             "reason": "no_bibcode",
         }
 
-    if not dry_run and out.get("paper_id") is not None and _default_auto_semantic_index_on_ingest():
-        try:
-            from research_library.library.semantic import index_paper
-
-            out["semantic_index"] = index_paper(conn, int(out["paper_id"]), force=False)
-        except Exception as e:
-            out["semantic_index"] = {"ok": False, "error": str(e)}
+    if out.get("paper_id") is not None:
+        auto_idx = _default_auto_semantic_index_on_ingest()
+        post = after_confident_ingest(
+            conn,
+            int(out["paper_id"]),
+            match_method=str(resolved.get("match_method") or "ingest"),
+            fetch_ar5iv=auto_idx,
+            do_index=auto_idx,
+        )
+        out["source_fetch"] = post.get("source_fetch")
+        out["semantic_index"] = post.get("semantic_index")
 
     return out
 
