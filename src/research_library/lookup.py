@@ -266,6 +266,13 @@ def _http_retry_base_delay() -> float:
         return 0.8
 
 
+def _http_retry_max_delay() -> float:
+    try:
+        return max(0.1, float((os.environ.get("RESEARCH_HTTP_RETRY_MAX_DELAY") or "10").strip()))
+    except ValueError:
+        return 10.0
+
+
 def http_get_with_retry(
     url: str,
     headers: Optional[Dict[str, str]] = None,
@@ -278,12 +285,15 @@ def http_get_with_retry(
 
     Re-raises the last exception/HTTPError on permanent failure so callers can
     keep their existing error-handling paths. 4xx responses other than the
-    retry set propagate immediately.
+    retry set propagate immediately. Honors ``Retry-After`` when present.
     """
     import time
 
+    from research_library.http_retry import backoff_seconds
+
     n = attempts if attempts is not None else _http_retry_attempts()
     base = _http_retry_base_delay()
+    max_delay = _http_retry_max_delay()
     last_exc: Optional[BaseException] = None
     for i in range(max(1, n)):
         try:
@@ -296,8 +306,7 @@ def http_get_with_retry(
             last_exc = e
             if i == n - 1:
                 raise
-        sleep_s = base * (2 ** i)
-        time.sleep(min(sleep_s, 10.0))
+        time.sleep(backoff_seconds(i, base=base, max_delay=max_delay, err=last_exc))
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("http_get_with_retry: exhausted without an exception")

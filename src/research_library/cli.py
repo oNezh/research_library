@@ -6,28 +6,11 @@ import argparse
 import sys
 
 
-def arxiv_keywords_run() -> None:
-    """Delegate to arxiv_keywords main flow."""
+def arxiv_keywords_run() -> int:
+    """Delegate to arxiv_keywords main flow. Returns process exit code."""
     from research_library import arxiv_keywords as ak
 
-    if "--clear-cache" in sys.argv:
-        ak.clear_cache()
-        return
-    if "--stats" in sys.argv:
-        print(ak.cache_stats())
-        return
-
-    cat = "all"
-    days = 365
-    persist_db = True
-    for a in sys.argv[1:]:
-        if a in ak.CATEGORIES:
-            cat = a
-        elif a.startswith("--days="):
-            days = int(a.split("=", 1)[1])
-        elif a == "--no-persist-db":
-            persist_db = False
-    ak.run(category=cat, days_back=days, persist_db=persist_db)
+    return ak.main(sys.argv[1:])
 
 
 def main() -> None:
@@ -85,10 +68,10 @@ def main() -> None:
         old = sys.argv
         try:
             sys.argv = ["arxiv_keywords.py"] + (getattr(args, "arxiv_args", None) or [])
-            arxiv_keywords_run()
+            code = arxiv_keywords_run()
         finally:
             sys.argv = old
-        sys.exit(0)
+        sys.exit(code)
 
     if args.command == "pdf-extract":
         from research_library.pdf_extract import main as pdf_main

@@ -305,7 +305,7 @@ def arxiv_keyword_scan(
     old_o, old_e = sys.stdout, sys.stderr
     try:
         sys.stdout, sys.stderr = out, err
-        ak.run(
+        code = ak.run(
             category=category,
             days_back=days_back,
             cache_enabled=True,
@@ -313,7 +313,6 @@ def arxiv_keyword_scan(
             max_results=max_results,
             max_pages_per_category=max_pages_per_category,
         )
-        code = 0
     finally:
         sys.stdout, sys.stderr = old_o, old_e
     return json.dumps(
